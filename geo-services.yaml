@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: 'AWS::Serverless-2016-10-31'
+Description: "API Gateway and Location Services integration with direct API Key reference"
+
+Parameters:
+  CORSOrigin:
+    Type: String
+    Description: The domain-name origin for the CORS policy.
+
+Resources:
+  LocationApiKey:
+    Type: 'AWS::Location::APIKey'
+    Properties:
+      Description: 'API key for accessing maps in Location Service'
+      KeyName: 'DemoLocationApiKey'
+      NoExpiry: true
+      Restrictions:
+        AllowActions:
+          - 'geo:GetMap*'
+        AllowReferers:
+          - !Ref CORSOrigin
+        AllowResources:
+          - !GetAtt GeoMapV2.Arn
+  
+  GeoMapV2:
+    Type: "AWS::Location::Map"
+    Properties:
+      Configuration:
+        Style: "VectorEsriNavigation"
+      Description: "Map for specific region"
+      MapName: "Geo-5pm-Map-v2"
+      PricingPlan: "RequestBasedUsage"
+
+Outputs:
+  LocationApiKey:
+    Description: 'API Key for accessing Location Service'
+    Value: !Ref LocationApiKey
+  LocationApiKeyArn:
+    Description: 'ARN of the Location Service API Key'
+    Value: !GetAtt LocationApiKey.KeyArn
+  GeoMapResourceName:
+    Description: 'Name of the Geo Map resource'
+    Value: !Ref GeoMapV2
+  GeoMapArn:
+    Description: 'ARN of the Geo Map Resource'
+    Value: !GetAtt GeoMapV2.Arn

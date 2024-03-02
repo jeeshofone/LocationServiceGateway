@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: 'AWS::Serverless-2016-10-31'
+Description: "API Gateway and Location Services integration with direct API Key reference"
+
+Parameters:
+  ApiKeyValue:
+    Type: String
+    Description: The API key value for Location Service.
+  DomainName:
+    Type: String
+    Description: The domain name for the Geo API Gateway.
+  HostedZoneId:
+    Type: String
+    Description: The Route 53 hosted zone ID for the domain name.
+  CORSOrigin:
+    Type: String
+    Description: The domain-name origin for the CORS policy.
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      LocationServiceEndpoint: maps.geo.us-east-1.amazonaws.com
+    us-east-2:
+      LocationServiceEndpoint: maps.geo.us-east-2.amazonaws.com
+    us-west-2:
+      LocationServiceEndpoint: maps.geo.us-west-2.amazonaws.com
+    ap-south-1:
+      LocationServiceEndpoint: maps.geo.ap-south-1.amazonaws.com
+    ap-southeast-1:
+      LocationServiceEndpoint: maps.geo.ap-southeast-1.amazonaws.com
+    ap-southeast-2:
+      LocationServiceEndpoint: maps.geo.ap-southeast-2.amazonaws.com
+    ap-northeast-1:
+      LocationServiceEndpoint: maps.geo.ap-northeast-1.amazonaws.com
+    ca-central-1:
+      LocationServiceEndpoint: maps.geo.ca-central-1.amazonaws.com
+    eu-central-1:
+      LocationServiceEndpoint: maps.geo.eu-central-1.amazonaws.com
+    eu-west-1:
+      LocationServiceEndpoint: maps.geo.eu-west-1.amazonaws.com
+    eu-west-2:
+      LocationServiceEndpoint: maps.geo.eu-west-2.amazonaws.com
+    eu-north-1:
+      LocationServiceEndpoint: maps.geo.eu-north-1.amazonaws.com
+    sa-east-1:
+      LocationServiceEndpoint: maps.geo.sa-east-1.amazonaws.com
+
+Resources:
+  Certificate:
+    Type: "AWS::CertificateManager::Certificate"
+    Properties:
+      DomainName: !Ref DomainName
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+      ValidationMethod: "DNS"
+
+  GeoApiGateway:
+    Type: "AWS::Serverless::Api"
+    Properties:
+      Description: "API Geo Proxy Service for specific region"
+      StageName: "Prod"
+      EndpointConfiguration: REGIONAL
+      Domain:
+        DomainName: !Ref DomainName
+        CertificateArn: !Ref Certificate
+      DefinitionBody:
+        swagger: '2.0'
+        info:
+          title: !Ref "AWS::StackName"
+        paths:
+          '/{proxy+}':
+            x-amazon-apigateway-any-method:
+              parameters:
+                - name: 'proxy'
+                  in: 'path'
+                  required: true
+                  type: 'string'
+              responses:
+                "200":
+                  description: "200 response"
+                  headers:
+                    Access-Control-Allow-Origin:
+                      type: 'string'
+                      default: !Ref CORSOrigin
+                    Access-Control-Allow-Headers:
+                      type: 'string'
+                      default: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+                    Access-Control-Allow-Methods:
+                      type: 'string'
+                      default: "'GET,OPTIONS'"
+              x-amazon-apigateway-integration:
+                httpMethod: 'ANY'
+                type: 'http_proxy'
+                uri:
+                  Fn::Sub:
+                    - 'https://${LocationServiceEndpoint}/{proxy}?key=${ApiKey}'
+                    - LocationServiceEndpoint:
+                        Fn::FindInMap:
+                          [
+                            RegionMap,
+                            !Ref "AWS::Region",
+                            LocationServiceEndpoint,
+                          ]
+                      ApiKey: !Ref ApiKeyValue
+                requestParameters:
+                  integration.request.path.proxy: 'method.request.path.proxy'
+                responses:
+                  default:
+                    statusCode: "200"
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Origin: !Ref CORSOrigin
+                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+                      method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+
