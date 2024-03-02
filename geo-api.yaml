@@ -1,5 +1,4 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Transform: 'AWS::Serverless-2016-10-31'
 Description: "API Gateway and Location Services integration with direct API Key reference"
 
 Parameters:
@@ -53,50 +52,89 @@ Resources:
       DomainValidationOptions:
         - DomainName: !Ref DomainName
           HostedZoneId: !Ref HostedZoneId
-      ValidationMethod: "DNS"
+      ValidationMethod: DNS
 
-  GeoApiGateway:
-    Type: "AWS::Serverless::Api"
+  RestApi:
+    Type: "AWS::ApiGateway::RestApi"
     Properties:
+      Name: "GeoApiGateway"
       Description: "API Geo Proxy Service for specific region"
+      FailOnWarnings: True
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  Deployment:
+    Type: "AWS::ApiGateway::Deployment"
+    DependsOn:
+      - MethodProxyGet
+    Properties:
+      RestApiId: !Ref RestApi
+      Description: "API Deployment"
+      # No StageName property when associated through Stage resource
+
+  Stage:
+    Type: "AWS::ApiGateway::Stage"
+    Properties:
       StageName: "Prod"
-      EndpointConfiguration: REGIONAL
-      Cors:
-        AllowMethods: "'GET'"
-        AllowHeaders: "'Content-Type,X-Forwarded-For'"
-        AllowOrigin: !Sub "https://${CORSOrigin}"
-        MaxAge: "'600'"
-        AllowCredentials: true
-      Domain:
-        DomainName: !Ref DomainName
-        CertificateArn: !Ref Certificate
-      DefinitionBody:
-        swagger: '2.0'
-        info:
-          title: !Ref "AWS::StackName"
-        paths:
-          '/{proxy+}':
-            get:  # Specifically defining a GET method
-              responses:
-                "200":
-                  description: "200 response"
-              x-amazon-apigateway-integration:
-                httpMethod: 'GET'
-                type: 'http_proxy'
-                uri:
-                  Fn::Sub:
-                    - 'https://${LocationServiceEndpoint}/{proxy}?key=${ApiKey}'
-                    - LocationServiceEndpoint:
-                        Fn::FindInMap:
-                          [
-                            RegionMap,
-                            !Ref "AWS::Region",
-                            LocationServiceEndpoint,
-                          ]
-                      ApiKey: !Ref ApiKeyValue
-                requestParameters:
-                  integration.request.path.proxy: 'method.request.path.proxy'
-                passthroughBehavior: "when_no_match"
-                responses:
-                  default:
-                    statusCode: "200"
+      Description: "Production Stage"
+      RestApiId: !Ref RestApi
+      DeploymentId: !Ref Deployment
+
+  ApiGatewayDomainName:
+    Type: "AWS::ApiGateway::DomainName"
+    Properties:
+      DomainName: !Ref DomainName
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      RegionalCertificateArn: !Ref Certificate
+
+  BasePathMapping:
+    Type: "AWS::ApiGateway::BasePathMapping"
+    Properties:
+      DomainName: !Ref ApiGatewayDomainName
+      RestApiId: !Ref RestApi
+      Stage: !Ref Stage
+
+  ResourceProxy:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: 
+        Fn::GetAtt: 
+          - "RestApi"
+          - "RootResourceId"
+      PathPart: "{proxy+}"
+
+  MethodProxyGet:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      HttpMethod: "GET"
+      AuthorizationType: "NONE"
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref ResourceProxy
+      Integration:
+        Type: "HTTP_PROXY"
+        IntegrationHttpMethod: "GET"
+        Uri: !Sub 
+          - "https://${ApiEndpoint}/{proxy}?key=${ApiKey}"
+          - ApiEndpoint: !FindInMap [RegionMap, !Ref "AWS::Region", LocationServiceEndpoint]
+            ApiKey: !Ref ApiKeyValue
+        RequestParameters:
+          integration.request.path.proxy: "method.request.path.proxy"
+        IntegrationResponses:
+          - StatusCode: 200
+      MethodResponses:
+        - StatusCode: 200
+      RequestParameters:
+        method.request.path.proxy: true
+
+
+
+
+
+Outputs:
+  ApiEndpoint:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${DomainName}/Prod"
