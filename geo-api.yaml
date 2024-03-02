@@ -61,6 +61,12 @@ Resources:
       Description: "API Geo Proxy Service for specific region"
       StageName: "Prod"
       EndpointConfiguration: REGIONAL
+      Cors:
+        AllowMethods: "'GET'"
+        AllowHeaders: "'Content-Type,X-Forwarded-For'"
+        AllowOrigin: !Sub "https://${CORSOrigin}"
+        MaxAge: "'600'"
+        AllowCredentials: true
       Domain:
         DomainName: !Ref DomainName
         CertificateArn: !Ref Certificate
@@ -70,27 +76,12 @@ Resources:
           title: !Ref "AWS::StackName"
         paths:
           '/{proxy+}':
-            x-amazon-apigateway-any-method:
-              parameters:
-                - name: 'proxy'
-                  in: 'path'
-                  required: true
-                  type: 'string'
+            get:  # Specifically defining a GET method
               responses:
                 "200":
                   description: "200 response"
-                  headers:
-                    Access-Control-Allow-Origin:
-                      type: 'string'
-                      default: !Ref CORSOrigin
-                    Access-Control-Allow-Headers:
-                      type: 'string'
-                      default: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-                    Access-Control-Allow-Methods:
-                      type: 'string'
-                      default: "'GET,OPTIONS'"
               x-amazon-apigateway-integration:
-                httpMethod: 'ANY'
+                httpMethod: 'GET'
                 type: 'http_proxy'
                 uri:
                   Fn::Sub:
@@ -105,11 +96,7 @@ Resources:
                       ApiKey: !Ref ApiKeyValue
                 requestParameters:
                   integration.request.path.proxy: 'method.request.path.proxy'
+                passthroughBehavior: "when_no_match"
                 responses:
                   default:
                     statusCode: "200"
-                    responseParameters:
-                      method.response.header.Access-Control-Allow-Origin: !Ref CORSOrigin
-                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-                      method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
-

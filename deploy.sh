@@ -8,8 +8,8 @@
 # Please make sure to configure your AWS CLI with aws configure before running this script
 
 # Customize these variables based on your requirements
-DOMAIN_NAME="geo.example.com" # Set this to the domain you wish to serve the GEO API from
-CORS_ORIGIN="*" # Set this to your frontend domain - You can set this to "*" for testing. However, this will allow any origin to access the API, and could result in security vulnerabilities and high costs. Please set this to your frontend domain.
+DOMAIN_NAME="m" # Set this to the domain you wish to serve the GEO API from
+CORS_ORIGIN="" # Set this to your frontend domain - You can set this to "*" for testing. However, this will allow any origin to access the API, and could result in security vulnerabilities and high costs. Please set this to your frontend domain.
 HostedZoneId="" # Set this to the Hosted Zone ID of your domain
 DEPLOY_REGIONS="us-east-1 us-west-2 ap-southeast-2" # Space-separated list of regions to deploy to. Make sure the regions are supported by AWS Location Service. The available list at the time of writing is below.
 #us-east-2 us-east-1 us-west-2 ap-south-1 ap-southeast-1 ap-southeast-2 ap-northeast-1 ca-central-1 eu-central-1 eu-west-1 eu-west-2 eu-north-1 sa-east-1
@@ -104,27 +104,23 @@ for region in $DEPLOY_REGIONS; do
         continue
     fi
 
-
     # Creating latency-based routing DNS record
-    aws route53 change-resource-record-sets --profile "$aws_profile" --hosted-zone-id "$HostedZoneId" --change-batch '{
-      "Changes": [{
-        "Action": "UPSERT",
-        "ResourceRecordSet": {
-          "Name": "'"$DOMAIN_NAME"'",
-          "Type": "A",
-          "SetIdentifier": "'$region'",
-          "Region": "'$region'",
-          "Latency": {
-            "Region": "'$region'"
-          },
-          "AliasTarget": {
-            "HostedZoneId": "'$REGIONAL_HOSTED_ZONE_ID'",
-            "DNSName": "'$REGIONAL_DOMAIN_NAME'",
-            "EvaluateTargetHealth": false
-          }
-        }
-      }]}' 
-      
+    aws route53 change-resource-record-sets --region us-east-1 --profile "$aws_profile" --hosted-zone-id "$HostedZoneId" --change-batch '{
+        "Changes": [{
+            "Action": "UPSERT",
+            "ResourceRecordSet": {
+            "Name": "'"$DOMAIN_NAME"'",
+            "Type": "A",
+            "SetIdentifier": "'$region'",
+            "Region": "'$region'",
+            "AliasTarget": {
+                "HostedZoneId": "'$REGIONAL_HOSTED_ZONE_ID'",
+                "DNSName": "'$REGIONAL_DOMAIN_NAME'",
+                "EvaluateTargetHealth": false
+            }
+            }
+        }]}'
+
     echo "Updated DNS for latency-based routing for $region."
 
 done

@@ -14,11 +14,13 @@ Resources:
       Description: 'API key for accessing maps in Location Service'
       KeyName: 'DemoLocationApiKey'
       NoExpiry: true
+      ForceUpdate: true
       Restrictions:
         AllowActions:
           - 'geo:GetMap*'
         AllowReferers:
-          - !Ref CORSOrigin
+          - !Sub 'https://${CORSOrigin}/*'
+          - !Sub 'https://${CORSOrigin}'
         AllowResources:
           - !GetAtt GeoMapV2.Arn
   
