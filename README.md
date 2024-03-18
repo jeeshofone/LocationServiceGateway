@@ -52,5 +52,6 @@ The script utilizes `geo-api.yaml` and `geo-services.yaml` CloudFormation templa
 ## Architecture Diagram
 
 Image: [Location Service Gateway](diagram.png)
+![alt text](https://github.com/jeeshofone/LocationServiceGateway/blob/main/diagram.png?raw=true)
 
 Ensure you have the necessary permissions and meet all prerequisites before running the script or deploying the CloudFormation templates.
