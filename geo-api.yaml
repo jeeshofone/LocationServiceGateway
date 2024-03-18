@@ -1,4 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
+Transform: 'AWS::Serverless-2016-10-31'
 Description: "API Gateway and Location Services integration with direct API Key reference"
 
 Parameters:
@@ -52,86 +53,94 @@ Resources:
       DomainValidationOptions:
         - DomainName: !Ref DomainName
           HostedZoneId: !Ref HostedZoneId
-      ValidationMethod: DNS
+      ValidationMethod: "DNS"
 
-  RestApi:
-    Type: "AWS::ApiGateway::RestApi"
+  GeoApiGateway:
+    Type: "AWS::Serverless::Api"
     Properties:
-      Name: "GeoApiGateway"
       Description: "API Geo Proxy Service for specific region"
-      FailOnWarnings: True
-      EndpointConfiguration:
-        Types:
-          - REGIONAL
-
-  Deployment:
-    Type: "AWS::ApiGateway::Deployment"
-    DependsOn:
-      - MethodProxyGet
-    Properties:
-      RestApiId: !Ref RestApi
-      Description: "API Deployment"
-      # No StageName property when associated through Stage resource
-
-  Stage:
-    Type: "AWS::ApiGateway::Stage"
-    Properties:
       StageName: "Prod"
-      Description: "Production Stage"
-      RestApiId: !Ref RestApi
-      DeploymentId: !Ref Deployment
-
-  ApiGatewayDomainName:
-    Type: "AWS::ApiGateway::DomainName"
-    Properties:
-      DomainName: !Ref DomainName
-      EndpointConfiguration:
-        Types:
-          - REGIONAL
-      RegionalCertificateArn: !Ref Certificate
-
-  BasePathMapping:
-    Type: "AWS::ApiGateway::BasePathMapping"
-    Properties:
-      DomainName: !Ref ApiGatewayDomainName
-      RestApiId: !Ref RestApi
-      Stage: !Ref Stage
-
-  ResourceProxy:
-    Type: "AWS::ApiGateway::Resource"
-    Properties:
-      RestApiId: !Ref RestApi
-      ParentId: 
-        Fn::GetAtt: 
-          - "RestApi"
-          - "RootResourceId"
-      PathPart: "{proxy+}"
-
-  MethodProxyGet:
-    Type: "AWS::ApiGateway::Method"
-    Properties:
-      HttpMethod: "GET"
-      AuthorizationType: "NONE"
-      RestApiId: !Ref RestApi
-      ResourceId: !Ref ResourceProxy
-      Integration:
-        Type: "HTTP_PROXY"
-        IntegrationHttpMethod: "GET"
-        Uri: !Sub 
-          - "https://${ApiEndpoint}/{proxy}?key=${ApiKey}"
-          - ApiEndpoint: !FindInMap [RegionMap, !Ref "AWS::Region", LocationServiceEndpoint]
-            ApiKey: !Ref ApiKeyValue
-        RequestParameters:
-          integration.request.path.proxy: "method.request.path.proxy"
-        IntegrationResponses:
-          - StatusCode: 200
-      MethodResponses:
-        - StatusCode: 200
-      RequestParameters:
-        method.request.path.proxy: true
-
-
-
+      EndpointConfiguration: REGIONAL
+      Domain:
+        DomainName: !Ref DomainName
+        CertificateArn: !Ref Certificate
+      DefinitionBody:
+        swagger: '2.0'
+        info:
+          title: !Ref "AWS::StackName"
+        paths:
+          '/{proxy+}':
+            get:
+              produces:
+                - "application/json"
+              responses:
+                "200":
+                  description: "200 response"
+                  headers:
+                    Access-Control-Allow-Origin:
+                      type: 'string'
+                      default: !Ref CORSOrigin
+                    Access-Control-Allow-Headers:
+                      type: 'string'
+                      default: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+                    Access-Control-Allow-Methods:
+                      type: 'string'
+                      default: "'GET,OPTIONS'"
+              x-amazon-apigateway-integration:
+                httpMethod: 'ANY'
+                type: 'http_proxy'
+                uri:
+                  Fn::Sub:
+                    - 'https://${LocationServiceEndpoint}/{proxy}?key=${ApiKey}'
+                    - LocationServiceEndpoint:
+                        Fn::FindInMap:
+                          [
+                            RegionMap,
+                            !Ref "AWS::Region",
+                            LocationServiceEndpoint,
+                          ]
+                      ApiKey: !Ref ApiKeyValue
+                requestParameters:
+                  integration.request.path.proxy: 'method.request.path.proxy'
+                responses:
+                  default:
+                    statusCode: "200"
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Origin: !Sub "'${CORSOrigin}'"
+                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+                      method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+            options:
+              summary: "CORS support for preflight requests"
+              consumes:
+                - "application/json"
+              produces:
+                - "application/json"
+              responses:
+                "200":
+                  description: "200 response"
+                  headers:
+                    Access-Control-Allow-Origin:
+                      type: "string"
+                      default: !Sub "'${CORSOrigin}'"
+                    Access-Control-Allow-Methods:
+                      type: "string"
+                      default: "'GET,POST,OPTIONS'"
+                    Access-Control-Allow-Headers:
+                      type: "string"
+                      default: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              x-amazon-apigateway-integration:
+                type: "mock"
+                requestTemplates:
+                  application/json: "{ \"statusCode\": 200 }"
+                responses:
+                  default:
+                    statusCode: "200"
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Origin: !Sub "'${CORSOrigin}'"
+                      method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+                responseTemplates:
+                  application/json: "{}"
 
 
 Outputs:

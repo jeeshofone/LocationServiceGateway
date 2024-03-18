@@ -15,12 +15,17 @@ Resources:
       KeyName: 'DemoLocationApiKey'
       NoExpiry: true
       ForceUpdate: true
+      ForceDelete: true
       Restrictions:
         AllowActions:
           - 'geo:GetMap*'
         AllowReferers:
-          - !Sub 'https://${CORSOrigin}/*'
-          - !Sub 'https://${CORSOrigin}'
+          - !Sub
+            - 'https://${Domain}/*'
+            - { Domain: !Ref CORSOrigin }
+          - !Sub
+            - 'https://${Domain}/'
+            - { Domain: !Ref CORSOrigin }
         AllowResources:
           - !GetAtt GeoMapV2.Arn
   
