@@ -1,16 +1,12 @@
 # Location Service Gateway Script
 
-This script automates the deployment of Geo Mapping Services and Geo API Services across specified AWS regions. It leverages the AWS CLI for all operations, ensuring a streamlined deployment process designed for ease of use and automation.
+Automate the deployment of Amazon Location Services across specified AWS regions with this script. The script creates an API Gateway and integrates it with Location Services, specifying direct API Key references and CORS settings. It also creates an API key for accessing maps in Location Service, along with the map resource itself. This allows you to serve the Amazon Location Service API from a custom domain and deploy it across multiple regions. Users can access the API from a single endpoint domain name, and they will be directed to the backend services in the closest region, ensuring low-latency, high-quality, and cost-effective map tile delivery, worldwide.
 
-## Author Information
+## Overview
 
-- **Author**: Will Laws
+Building on the experience from developing [findyourfivepm.com](https://findyourfivepm.com), this script solves a crucial challenge: ensuring low-latency, high-quality, and cost-effective map tile delivery worldwide. Amazon Location Service (ALS) was chosen for its robust features but required an innovative approach to overcome regional latency when serving map tiles. 
 
-## Description
-
-This deployment script is tailored for setting up Geo Mapping Services and Geo API Services using AWS CLI commands. It assumes that you have the AWS CLI installed and properly configured with the necessary permissions.
-
-For more detailed insights into the motivation and strategy behind these services, refer to my more comprehensive blog post: [Regional to Global - Adapting Amazon Location Service for Worldwide Use](https://www.123cloud.st/p/regional-to-global-adapting-amazon).
+For an in-depth exploration of this project's conception, challenges, and the decision-making process, see my detailed blog post: [Regional to Global - Adapting Amazon Location Service for Worldwide Use](https://www.123cloud.st/p/regional-to-global-adapting-amazon).
 
 ### Prerequisites
 
