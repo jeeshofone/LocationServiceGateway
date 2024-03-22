@@ -1,4 +1,4 @@
-# Location Service Gateway Script
+# Location Service Gateway
 
 Automate the deployment of Amazon Location Services across specified AWS regions with this script. The script creates an API Gateway and integrates it with Location Services, specifying direct API Key references and CORS settings. It also creates an API key for accessing maps in Location Service, along with the map resource itself. This allows you to serve the Amazon Location Service API from a custom domain and deploy it across multiple regions. Users can access the API from a single endpoint domain name, and they will be directed to the backend services in the closest region, ensuring low-latency, high-quality, and cost-effective map tile delivery, worldwide.
 
