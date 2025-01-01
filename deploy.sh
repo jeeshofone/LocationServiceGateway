@@ -1,29 +1,72 @@
 #!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
 
-# https://www.123cloud.st/p/regional-to-global-adapting-amazon
-# Author: Will Laws
-# Date: 2024-03-18
+# Purpose: Deploy or remove multi-region geo mapping and API services with latency-based routing
+#
+# This script manages AWS CloudFormation stacks for geographic mapping services and APIs across
+# multiple regions. It supports:
+# - Custom domain configuration with Route53 latency-based routing
+# - CORS configuration for API security
+# - AWS profile selection for different environments
+# - Full stack deployment and removal capabilities
+#
+# Prerequisites:
+# - AWS CLI installed and configured with appropriate permissions
+# - Route53 hosted zone for domain management
+# - Valid domain name for API endpoints
+#
+# Usage:
+#   ./deploy.sh --domain <domain> --hosted-zone <zone-id> --cors <origin> [--profile <profile>] [--remove]
 
-# Description:
-# This script deploys the Geo Mapping Services and Geo API Services to the specified regions using AWS CLI
-# The script assumes that the AWS CLI is installed and configured with the necessary permissions
-# Please make sure to configure your AWS CLI with aws configure before running this script and use a profile with the necessary permissions
+# Default values
+DOMAIN_NAME=""
+CORS_ORIGIN=""
+HostedZoneId=""
+aws_profile="default"
+DEPLOY_REGIONS="us-east-1 ap-southeast-2"
 
-# Customize these variables based on your requirements
-DOMAIN_NAME="geo.example.com" # Set this to the domain you wish to serve the GEO API from
-CORS_ORIGIN="abcde12345.cloudfront.net" # Set this to your frontend domain - You can set this to "*" for testing. However, this will allow any origin to access the API, and could result in security vulnerabilities and high costs. Please set this to your frontend domain.
-HostedZoneId="Z012345789ABCD" # Set this to the Hosted Zone ID of your domain
-DEPLOY_REGIONS="us-east-1 ap-southeast-2" # Space-separated list of regions to deploy to. Make sure the regions are supported by AWS Location Service. The available list at the time of writing is below.
-#us-east-2 us-east-1 us-west-2 ap-south-1 ap-southeast-1 ap-southeast-2 ap-northeast-1 ca-central-1 eu-central-1 eu-west-1 eu-west-2 eu-north-1 sa-east-1
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --domain)
+            DOMAIN_NAME="$2"
+            shift 2
+            ;;
+        --hosted-zone)
+            HostedZoneId="$2"
+            shift 2
+            ;;
+        --cors)
+            CORS_ORIGIN="$2"
+            shift 2
+            ;;
+        --profile)
+            aws_profile="$2"
+            shift 2
+            ;;
+        --remove)
+            REMOVE=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
 
-# The following regions are also supported for AWS GovCloud (US) customers and can be added to the DEPLOY_REGIONS list if required. however, you will need to update the Mapping section in the geo-services.yaml file to include the GovCloud region names and endpoints:
-#us-gov-west-1 us-gov-west-1 us-gov-west-1
-
-# take user input for --profile to set the aws profile when running the script
-read -p "Enter the AWS CLI profile to use (default): " aws_profile
-aws_profile=${aws_profile:-default}
-
-# Function to fetch the Regional Domain Name and Hosted Zone ID for API Gateway
+# Retrieves regional API Gateway domain information and hosted zone details
+# 
+# Arguments:
+#   $1 - AWS region (e.g., us-east-1)
+#   $2 - AWS CLI profile name
+# Returns:
+#   0 - Success, information retrieved
+#   1 - Failure, missing information
+# Sets global variables:
+#   REGIONAL_DOMAIN_NAME - The regional domain name for API Gateway
+#   REGIONAL_HOSTED_ZONE_ID - The regional hosted zone ID for API Gateway
 fetch_regional_domain_and_hosted_zone() {
     local region=$1
     local profile=$2
@@ -48,7 +91,14 @@ fetch_regional_domain_and_hosted_zone() {
     return 0
 }
 
-# Function to get the Hosted Zone ID for API Gateway based on the region
+# Maps AWS regions to their corresponding API Gateway hosted zone IDs
+# 
+# Arguments:
+#   $1 - AWS region identifier
+# Returns:
+#   Hosted zone ID string or "Unknown" if region not recognized
+# Reference:
+#   https://docs.aws.amazon.com/general/latest/gr/apigateway.html
 get_hosted_zone_id() {
     case "$1" in
         "us-east-2") echo "ZOJJZC49E0EPZ" ;;
@@ -78,7 +128,20 @@ get_hosted_zone_id() {
     esac
 }
 
-# Function to deploy the Geo Mapping Services and Geo API Services to the specified regions using AWS CLI
+# Deploys geo mapping services and API infrastructure across specified regions
+#
+# Performs the following operations:
+# - Deploys CloudFormation stacks for geo mapping services
+# - Creates and configures API keys
+# - Sets up custom domain names in API Gateway
+# - Configures Route53 latency-based routing
+#
+# Global variables used:
+#   DEPLOY_REGIONS - Space-separated list of target AWS regions
+#   DOMAIN_NAME - Custom domain for API endpoints
+#   CORS_ORIGIN - Allowed CORS origin
+#   HostedZoneId - Route53 hosted zone ID
+#   aws_profile - AWS CLI profile name
 deployfunction() {
     # Make sure the user is aware that the script will deploy to the specified regions and prompt for confirmation
     echo "This script will deploy the Geo Mapping Services and Geo API Services to the specified regions using AWS CLI."
@@ -143,7 +206,18 @@ deployfunction() {
     done
 }
 
-# Function to delete the Geo Mapping Services and Geo API Services from the specified regions using AWS CLI
+# Removes all deployed infrastructure across specified regions
+#
+# Performs the following cleanup:
+# - Deletes CloudFormation stacks in each region
+# - Removes Route53 DNS records for regional endpoints
+# - Waits for stack deletion completion
+#
+# Global variables used:
+#   DEPLOY_REGIONS - Space-separated list of target AWS regions
+#   DOMAIN_NAME - Custom domain for API endpoints
+#   HostedZoneId - Route53 hosted zone ID
+#   aws_profile - AWS CLI profile name
 delete_stacks() {
     # Make sure the user is aware that the script will deploy to the specified regions and prompt for confirmation
     echo "This script will delete the Geo Mapping Services and Geo API Services to the specified regions using AWS CLI."
@@ -196,29 +270,39 @@ delete_stacks() {
     done
 }
 
-# Function to check if the required parameters are set and the AWS CLI is installed
+# Validates required parameters and environment prerequisites
+#
+# Checks:
+# - Required command line parameters are provided
+# - CORS origin security implications
+# - AWS CLI installation and availability
+#
+# Exits with status 1 if any validation fails
 check_params(){
-    #check that the required parameters are set
+    # Check required parameters
     if [ -z "$DOMAIN_NAME" ]; then
-        echo "DOMAIN_NAME is not set. Please set the DOMAIN_NAME variable to the domain you wish to serve the GEO API from."
+        echo "Error: --domain parameter is required"
+        echo "Usage: ./deploy.sh --domain <domain> --hosted-zone <zone-id> --cors <origin> [--profile <profile>] [--remove]"
         exit 1
     fi
 
     if [ -z "$HostedZoneId" ]; then
-        echo "HostedZoneId is not set. Please set the HostedZoneId variable to the Hosted Zone ID of your domain."
+        echo "Error: --hosted-zone parameter is required"
+        echo "Usage: ./deploy.sh --domain <domain> --hosted-zone <zone-id> --cors <origin> [--profile <profile>] [--remove]"
         exit 1
     fi
 
     if [ -z "$CORS_ORIGIN" ]; then
-        echo "CORS_ORIGIN is not set. Please set the CORS_ORIGIN variable to your frontend domain."
+        echo "Error: --cors parameter is required"
+        echo "Usage: ./deploy.sh --domain <domain> --hosted-zone <zone-id> --cors <origin> [--profile <profile>] [--remove]"
         exit 1
     fi
 
     if [ "$CORS_ORIGIN" == "*" ]; then
-        read -p "CORS_ORIGIN is set to '*'. This will allow any origin to access the API, and could result in security vulnerabilities and high cost. Are you sure you want to continue? (y/n) " -n 1 -r
+        read -p "Warning: CORS origin '*' allows any origin to access the API. This could result in security vulnerabilities and high costs. Continue? (y/n) " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            echo "Deployment halted."
+            echo "Deployment cancelled."
             exit 1
         fi
     fi
@@ -231,22 +315,28 @@ check_params(){
 
 }
 
-# Main function to handle user input and call the appropriate functions
+# Orchestrates the deployment or removal workflow
+#
+# Controls the execution flow based on --remove flag:
+# - Validates parameters and prerequisites
+# - Executes either deployment or removal process
+# - Provides completion status
+#
+# Exit codes:
+#   0 - Successful completion
+#   1 - Error occurred during execution
 main() {
     check_params
 
-    case "$1" in
-        --remove)
-            delete_stacks
-            echo "Deletion completed successfully."
-            exit 0
-            ;;
-        *)
-            deployfunction
-            echo "Deployment completed successfully."
-            exit 0
-            ;;
-    esac
+    if [[ "$REMOVE" == true ]]; then
+        delete_stacks
+        echo "Deletion completed successfully."
+    else
+        deployfunction
+        echo "Deployment completed successfully."
+    fi
+    exit 0
 }
 
-main "$@"
+# Execute main function with all arguments
+main

@@ -18,7 +18,7 @@ Resources:
       ForceDelete: true
       Restrictions:
         AllowActions:
-          - 'geo:GetMap*'
+          - "geo-maps:*"
         AllowReferers:
           - !Sub
             - 'https://${Domain}/*'
@@ -27,7 +27,7 @@ Resources:
             - 'https://${Domain}/'
             - { Domain: !Ref CORSOrigin }
         AllowResources:
-          - !GetAtt GeoMapV2.Arn
+          - !Sub "arn:aws:geo-maps:${AWS::Region}::provider/default"
   
   GeoMapV2:
     Type: "AWS::Location::Map"
@@ -35,8 +35,7 @@ Resources:
       Configuration:
         Style: "VectorEsriNavigation"
       Description: "Map for specific region"
-      MapName: "Geo-5pm-Map-v2"
-      PricingPlan: "RequestBasedUsage"
+      MapName: "GeoMapV2"
 
 Outputs:
   LocationApiKey:

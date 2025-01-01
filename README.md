@@ -31,15 +31,28 @@ Customize the following variables in the script as per your requirements:
 
 ## Usage
 
-To deploy the services, simply run the script and provide the AWS CLI profile you wish to use when prompted:
+To deploy the services, you can use the following command-line parameters:
 
 ```bash
-./deploy.sh
+./deploy.sh \
+  --domain yourdomain.com \
+  --hosted-zone Z012345789ABCD \
+  --cors example.com \
+  --profile your-aws-profile
 ```
 
-When done cleaning up, you can remove the deployed stacks and DNS records. Run the script with the `--remove` flag and provide the AWS CLI profile when prompted:
+Available parameters:
+- `--domain`: The domain name to serve the GEO API from
+- `--hosted-zone`: The Route 53 hosted zone ID for your domain
+- `--cors`: The allowed CORS origin domain
+- `--profile`: AWS CLI profile to use (optional, defaults to 'default')
+
+When done cleaning up, you can remove the deployed stacks and DNS records using:
 ```bash
-./deploy.sh --remove
+./deploy.sh --remove \
+  --domain yourdomain.com \
+  --hosted-zone Z012345789ABCD \
+  --profile your-aws-profile
 ```
 
 ## CloudFormation Templates
