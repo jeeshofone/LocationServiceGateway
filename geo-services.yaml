@@ -28,14 +28,6 @@ Resources:
             - { Domain: !Ref CORSOrigin }
         AllowResources:
           - !Sub "arn:aws:geo-maps:${AWS::Region}::provider/default"
-  
-  GeoMapV2:
-    Type: "AWS::Location::Map"
-    Properties:
-      Configuration:
-        Style: "VectorEsriNavigation"
-      Description: "Map for specific region"
-      MapName: "GeoMapV2"
 
 Outputs:
   LocationApiKey:
@@ -44,9 +36,3 @@ Outputs:
   LocationApiKeyArn:
     Description: 'ARN of the Location Service API Key'
     Value: !GetAtt LocationApiKey.KeyArn
-  GeoMapResourceName:
-    Description: 'Name of the Geo Map resource'
-    Value: !Ref GeoMapV2
-  GeoMapArn:
-    Description: 'ARN of the Geo Map Resource'
-    Value: !GetAtt GeoMapV2.Arn
