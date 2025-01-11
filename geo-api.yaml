@@ -19,31 +19,35 @@ Parameters:
 Mappings:
   RegionMap:
     us-east-1:
-      LocationServiceEndpoint: maps.geo.us-east-1.amazonaws.com
+      LocationServiceEndpoint: geo.us-east-1.amazonaws.com
     us-east-2:
-      LocationServiceEndpoint: maps.geo.us-east-2.amazonaws.com
+      LocationServiceEndpoint: geo.us-east-2.amazonaws.com
     us-west-2:
-      LocationServiceEndpoint: maps.geo.us-west-2.amazonaws.com
+      LocationServiceEndpoint: geo.us-west-2.amazonaws.com
     ap-south-1:
-      LocationServiceEndpoint: maps.geo.ap-south-1.amazonaws.com
+      LocationServiceEndpoint: geo.ap-south-1.amazonaws.com
     ap-southeast-1:
-      LocationServiceEndpoint: maps.geo.ap-southeast-1.amazonaws.com
+      LocationServiceEndpoint: geo.ap-southeast-1.amazonaws.com
     ap-southeast-2:
-      LocationServiceEndpoint: maps.geo.ap-southeast-2.amazonaws.com
+      LocationServiceEndpoint: geo.ap-southeast-2.amazonaws.com
+    ap-southeast-5:
+      LocationServiceEndpoint: geo.ap-southeast-5.amazonaws.com
     ap-northeast-1:
-      LocationServiceEndpoint: maps.geo.ap-northeast-1.amazonaws.com
+      LocationServiceEndpoint: geo.ap-northeast-1.amazonaws.com
     ca-central-1:
-      LocationServiceEndpoint: maps.geo.ca-central-1.amazonaws.com
+      LocationServiceEndpoint: geo.ca-central-1.amazonaws.com
     eu-central-1:
-      LocationServiceEndpoint: maps.geo.eu-central-1.amazonaws.com
+      LocationServiceEndpoint: geo.eu-central-1.amazonaws.com
     eu-west-1:
-      LocationServiceEndpoint: maps.geo.eu-west-1.amazonaws.com
+      LocationServiceEndpoint: geo.eu-west-1.amazonaws.com
     eu-west-2:
-      LocationServiceEndpoint: maps.geo.eu-west-2.amazonaws.com
+      LocationServiceEndpoint: geo.eu-west-2.amazonaws.com
+    eu-south-2:
+      LocationServiceEndpoint: geo.eu-south-2.amazonaws.com
     eu-north-1:
-      LocationServiceEndpoint: maps.geo.eu-north-1.amazonaws.com
+      LocationServiceEndpoint: geo.eu-north-1.amazonaws.com
     sa-east-1:
-      LocationServiceEndpoint: maps.geo.sa-east-1.amazonaws.com
+      LocationServiceEndpoint: geo.sa-east-1.amazonaws.com
 
 Resources:
   Certificate:

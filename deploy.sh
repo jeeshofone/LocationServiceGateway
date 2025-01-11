@@ -111,6 +111,7 @@ get_hosted_zone_id() {
         "ap-northeast-2") echo "Z20JF4UZKIW1U8" ;;
         "ap-southeast-1") echo "ZL327KTPIQFUL" ;;
         "ap-southeast-2") echo "Z2RPCDW04V8134" ;;
+        "ap-southeast-5") echo "Z0124755XQVK1W3URNT1" ;;
         "ap-northeast-1") echo "Z1YSHQZHG15GKL" ;;
         "ca-central-1") echo "Z19DQILCV0OWEC" ;;
         "eu-central-1") echo "Z1U9ULNL0V5AJ3" ;;
@@ -119,6 +120,7 @@ get_hosted_zone_id() {
         "eu-west-3") echo "Z3KY65QIEKYHQQ" ;;
         "eu-north-1") echo "Z3UWIKFBOOGXPP" ;;
         "eu-south-1") echo "Z3BT4WSQ9TDYZV" ;;
+        "eu-south-2") echo "Z0081959F7139GRJC19T" ;;
         "sa-east-1") echo "ZCMLWB8V5SYIT" ;;
         "me-south-1") echo "Z20ZBPC0SS8806" ;;
         "me-central-1") echo "Z08780021BKYYY8U0YHTV" ;;
