@@ -1,0 +1,241 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for setting up S3 and CloudFront to host static website
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: The domain name for the CloudFront distribution
+  S3BucketName:
+    Type: String
+    Description: The name of the S3 bucket to create
+  HostedZoneId:
+    Type: String
+    Description: The Route 53 hosted zone ID for the domain name
+
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: ['GET']
+            AllowedOrigins: [ !Sub "https://${DomainName}" ]
+            ExposedHeaders: ['Date']
+            MaxAge: 3600
+
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Statement:
+          - Action: s3:GetObject
+            Effect: Allow
+            Resource: !Sub "${S3Bucket.Arn}/*"
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+          - Action: s3:PutObject
+            Effect: Allow
+            Resource: !Sub "${S3Bucket.Arn}/*"
+            Principal:
+              AWS: !GetAtt LambdaExecutionRole.Arn
+
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties: 
+      OriginAccessControlConfig:
+        Description: Origin Access Control for static website
+        Name: !Ref AWS::StackName
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  ACMCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub 'Distribution for ${DomainName}'
+        Enabled: true
+        HttpVersion: 'http2and3'
+        Aliases: [ !Ref DomainName ]
+        DefaultRootObject: index.html
+        DefaultCacheBehavior:
+          ViewerProtocolPolicy: redirect-to-https
+          TargetOriginId: S3Origin
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          Compress: true
+        Origins:
+          - DomainName: !GetAtt S3Bucket.DomainName
+            Id: S3Origin
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+            OriginAccessControlId: !GetAtt CloudFrontOriginAccessControl.Id
+        ViewerCertificate:
+          AcmCertificateArn: !Ref ACMCertificate
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: 'TLSv1.2_2021'
+
+  DeployLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+
+          def lambda_handler(event, context):
+              print("Received event:", json.dumps(event))
+              s3 = boto3.client('s3')
+              
+              if event['RequestType'] == 'Delete':
+                  return cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+
+              bucket_name = event['ResourceProperties']['BucketName']
+              api_endpoint = event['ResourceProperties']['ApiEndpoint']
+              region = event['ResourceProperties']['Region']
+              
+              html_content = f'''
+              <!-- Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved. -->
+              <!-- SPDX-License-Identifier: MIT-0 -->
+              <html>
+                <head>
+                  <link
+                    href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.min.css"
+                    rel="stylesheet"
+                  />
+                  <style>
+                    body {{
+                      margin: 0;
+                    }}
+                    #map {{
+                      height: 100vh;
+                    }}
+                  </style>
+                </head>
+                <body>
+                  <div id="map" />
+                  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.min.js"></script>
+                  <script>
+                    async function initializeMap() {{
+                      // Initialize the map
+                      const map = new maplibregl.Map({{
+                        container: "map",
+                        center: [-123.1187, 49.2819],
+                        zoom: 10,
+                        style: `{api_endpoint}/v2/styles/Standard/descriptor`,
+                        validateStyle: false,
+                      }});
+
+                      map.addControl(new maplibregl.NavigationControl(), "top-left");
+                    }}
+
+                    initializeMap();
+                  </script>
+                </body>
+              </html>
+              '''
+
+              try:
+                  s3.put_object(
+                      Bucket=bucket_name,
+                      Key="index.html",
+                      ContentType="text/html",
+                      Body=html_content
+                  )
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                Resource: !Sub 'arn:aws:s3:::${S3BucketName}/*'
+
+  S3BucketSetup:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt DeployLambdaFunction.Arn
+      BucketName: !Ref S3Bucket
+      ApiEndpoint: !Sub "https://${DomainName}"
+      Region: !Ref "AWS::Region"
+    DependsOn: [DeployLambdaFunction, S3Bucket, S3BucketPolicy]
+
+  Route53RecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+
+  Route53RecordSetAAAA:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: AAAA
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+
+Outputs:
+  BucketName:
+    Description: "Name of the S3 bucket"
+    Value: !Ref S3Bucket
+  CloudFrontDomain:
+    Description: "CloudFront distribution domain name"
+    Value: !GetAtt CloudFrontDistribution.DomainName
+  WebsiteURL:
+    Description: "Website URL"
+    Value: !Sub "https://${DomainName}"
