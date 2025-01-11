@@ -20,21 +20,15 @@
     <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.min.js"></script>
     <script>
       async function initializeMap() {
-        const apiKey = "<YOUR_AWS_API_KEY>";
-        const region = "<YOUR_AWS_REGION>";
-
         // Initialize the map
         const map = new maplibregl.Map({
           container: "map",
-          // Initial map centerpoint
           center: [-123.1187, 49.2819],
-          // Initial zoom level
           zoom: 10,
-          style: `https://<domain name>/v2/styles/Standard/descriptor`,
-          validateStyle: false, // Disable style validation for faster map load
+          style: `${window.location.origin}/v2/styles/Standard/descriptor`,
+          validateStyle: false
         });
 
-        // Add navigation controls
         map.addControl(new maplibregl.NavigationControl(), "top-left");
       }
 
