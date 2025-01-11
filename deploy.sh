@@ -23,6 +23,7 @@
 DOMAIN_NAME=""
 CORS_ORIGIN=""
 HostedZoneId=""
+S3_BUCKET_NAME=""
 aws_profile="default"
 DEPLOY_REGIONS="us-east-1 ap-southeast-2"
 
@@ -43,6 +44,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --profile)
             aws_profile="$2"
+            shift 2
+            ;;
+        --bucket)
+            S3_BUCKET_NAME="$2"
             shift 2
             ;;
         --remove)
@@ -135,6 +140,52 @@ get_hosted_zone_id() {
         "us-gov-east-1") echo "Z3SE9ATJYCRCZJ" ;;
         *) echo "Unknown" ;;
     esac
+}
+
+# Deploy the S3/CloudFront website infrastructure
+#
+# Deploys:
+# - S3 bucket for static hosting
+# - CloudFront distribution
+# - ACM certificate
+# - Route53 records
+deploy_website() {
+    echo "Deploying website infrastructure..."
+    
+    # Deploy the S3/CloudFront stack in us-east-1 (required for CloudFront)
+    aws cloudformation deploy \
+        --profile "$aws_profile" \
+        --template-file s3-cloudfront.yaml \
+        --stack-name WebsiteStack \
+        --region us-east-1 \
+        --capabilities CAPABILITY_IAM \
+        --parameter-overrides \
+            DomainName=$DOMAIN_NAME \
+            S3BucketName=$S3_BUCKET_NAME \
+            HostedZoneId=$HostedZoneId
+
+    echo "Website infrastructure deployed"
+}
+
+# Remove the S3/CloudFront website infrastructure
+remove_website() {
+    echo "Removing website infrastructure..."
+    
+    # Empty the S3 bucket first
+    aws s3 rm s3://$S3_BUCKET_NAME --recursive --profile "$aws_profile"
+    
+    # Delete the CloudFormation stack
+    aws cloudformation delete-stack \
+        --profile "$aws_profile" \
+        --stack-name WebsiteStack \
+        --region us-east-1
+    
+    aws cloudformation wait stack-delete-complete \
+        --profile "$aws_profile" \
+        --stack-name WebsiteStack \
+        --region us-east-1
+        
+    echo "Website infrastructure removed"
 }
 
 # Deploys geo mapping services and API infrastructure across specified regions
@@ -303,7 +354,13 @@ check_params(){
 
     if [ -z "$CORS_ORIGIN" ]; then
         echo "Error: --cors parameter is required"
-        echo "Usage: ./deploy.sh --domain <domain> --hosted-zone <zone-id> --cors <origin> [--profile <profile>] [--remove]"
+        echo "Usage: ./deploy.sh --domain <domain> --hosted-zone <zone-id> --cors <origin> --bucket <bucket> [--profile <profile>] [--remove]"
+        exit 1
+    fi
+
+    if [ -z "$S3_BUCKET_NAME" ]; then
+        echo "Error: --bucket parameter is required"
+        echo "Usage: ./deploy.sh --domain <domain> --hosted-zone <zone-id> --cors <origin> --bucket <bucket> [--profile <profile>] [--remove]"
         exit 1
     fi
 
@@ -339,8 +396,10 @@ main() {
 
     if [[ "$REMOVE" == true ]]; then
         delete_stacks
+        remove_website
         echo "Deletion completed successfully."
     else
+        deploy_website
         deployfunction
         echo "Deployment completed successfully."
     fi
