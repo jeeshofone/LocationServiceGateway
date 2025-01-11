@@ -1,6 +1,6 @@
-# Location Service Gateway
+# Location Service Gateway with Static Website Hosting
 
-Automate the deployment of Amazon Location Services across specified AWS regions with this script. The script creates an API Gateway and integrates it with Location Services, specifying direct API Key references and CORS settings. It also creates an API key for accessing maps in Location Service, along with the map resource itself. This allows you to serve the Amazon Location Service API from a custom domain and deploy it across multiple regions. Users can access the API from a single endpoint domain name, and they will be directed to the backend services in the closest region, ensuring low-latency, high-quality, and cost-effective map tile delivery, worldwide.
+This project automates the deployment of Amazon Location Services across specified AWS regions with CloudFront-enabled static website hosting. The solution creates an API Gateway integrated with Location Services (with API Key references and CORS settings) and sets up S3/CloudFront infrastructure for hosting the map interface. Users can access both the map interface and API endpoints through custom domains, with backend services automatically routing to the closest region for optimal performance.
 
 ## Overview
 
@@ -22,45 +22,69 @@ You will need a domain name and a Hosted Zone ID for the domain to serve the API
 
 ## Configuration
 
-Customize the following variables in the script as per your requirements:
+The solution requires configuration for both the API Gateway and static website hosting:
 
-- `DOMAIN_NAME`: The domain name to serve the GEO API from. (Note: This domain should be registered and available in AWS Route 53.)
-- `CORS_ORIGIN`: Your frontend domain. (Note: For testing, you can set this to "*", but it's recommended to specify your frontend domain for security purposes.)
-- `HostedZoneId`: The Hosted Zone ID of your domain. 
-- `DEPLOY_REGIONS`: A space-separated list of regions where you wish to deploy the services. Ensure these regions support AWS Location Service. The deploy.sh file has a list of regions where AWS Location Service is available. You can add or remove regions as per your requirements.
+### API Gateway Configuration
+- `DOMAIN_NAME`: Domain name for the GEO API (must be registered in Route 53)
+- `CORS_ORIGIN`: Frontend domain for CORS (use "*" for testing only)
+- `HostedZoneId`: Route 53 Hosted Zone ID
+- `DEPLOY_REGIONS`: Space-separated list of deployment regions (must support Location Service)
+
+### Website Hosting Configuration
+- A separate domain name for the static website
+- S3 bucket name for content storage
+- Route 53 Hosted Zone ID for the website domain
 
 ## Usage
 
-To deploy the services, you can use the following command-line parameters:
-
+### Deploy API Gateway and Location Services
 ```bash
 ./deploy.sh \
-  --domain yourdomain.com \
+  --domain api.yourdomain.com \
   --hosted-zone Z012345789ABCD \
-  --cors example.com \
+  --cors map.yourdomain.com \
   --profile your-aws-profile
 ```
 
-Available parameters:
-- `--domain`: The domain name to serve the GEO API from
-- `--hosted-zone`: The Route 53 hosted zone ID for your domain
-- `--cors`: The allowed CORS origin domain
-- `--profile`: AWS CLI profile to use (optional, defaults to 'default')
+Parameters:
+- `--domain`: API Gateway domain name
+- `--hosted-zone`: Route 53 hosted zone ID
+- `--cors`: Allowed CORS origin domain
+- `--profile`: AWS CLI profile (optional, defaults to 'default')
 
-When done cleaning up, you can remove the deployed stacks and DNS records using:
+### Deploy Static Website
+```bash
+aws cloudformation deploy \
+  --template-file s3-cloudfront.yaml \
+  --stack-name map-website \
+  --parameter-overrides \
+    DomainName=map.yourdomain.com \
+    S3BucketName=your-bucket-name \
+    HostedZoneId=Z012345789ABCD \
+  --capabilities CAPABILITY_IAM
+```
+
+### Cleanup
+Remove API Gateway and Location Services:
 ```bash
 ./deploy.sh --remove \
-  --domain yourdomain.com \
+  --domain api.yourdomain.com \
   --hosted-zone Z012345789ABCD \
   --profile your-aws-profile
+```
+
+Remove website hosting:
+```bash
+aws cloudformation delete-stack --stack-name map-website
 ```
 
 ## CloudFormation Templates
 
-The script utilizes `geo-api.yaml` and `geo-services.yaml` CloudFormation templates:
+The solution uses multiple CloudFormation templates:
 
-- `geo-api.yaml`: Configures the API Gateway and integrates it with Location Services, specifying direct API Key references and CORS settings.
-- `geo-services.yaml`: Creates an API key for accessing maps in Location Service, along with the map resource itself.
+- `geo-api.yaml`: API Gateway configuration with Location Services integration
+- `geo-services.yaml`: Location Service API key and map resource creation
+- `s3-cloudfront.yaml`: S3 bucket and CloudFront distribution for static website hosting
 
 ## Architecture Diagram
 
