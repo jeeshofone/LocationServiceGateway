@@ -219,30 +219,63 @@ deployfunction() {
     done
     REGIONS_JSON="${REGIONS_JSON%,}]"
 
-    # Create StackSet
+    # Create Location Service API Key StackSet
     aws cloudformation create-stack-set \
-        --stack-set-name GeoServicesStackSet \
-        --template-body file://stackset-template.yaml \
-        --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
+        --stack-set-name LocationServiceStackSet \
+        --template-body file://location-stackset.yaml \
+        --capabilities CAPABILITY_NAMED_IAM \
         --permission-model SELF_MANAGED \
-        --parameters ParameterKey=DomainName,ParameterValue=$DOMAIN_NAME \
-                    ParameterKey=HostedZoneId,ParameterValue=$HostedZoneId \
-                    ParameterKey=CORSOrigin,ParameterValue=$CORS_ORIGIN \
+        --parameters ParameterKey=CORSOrigin,ParameterValue=$CORS_ORIGIN \
         --profile "$aws_profile"
 
-    # Create stack instances in all regions
+    # Create Location Service stack instances in all regions
     aws cloudformation create-stack-instances \
-        --stack-set-name GeoServicesStackSet \
+        --stack-set-name LocationServiceStackSet \
         --accounts "[$(aws sts get-caller-identity --query 'Account' --output text)]" \
         --regions "$REGIONS_JSON" \
         --operation-preferences MaxConcurrentCount=10,FailureToleranceCount=0 \
         --profile "$aws_profile"
 
-    # Wait for stack instances to complete
-    echo "Waiting for stack instances to complete..."
+    # Wait for Location Service stack instances to complete
+    echo "Waiting for Location Service stack instances to complete..."
     aws cloudformation wait stack-set-operation-complete \
-        --stack-set-name GeoServicesStackSet \
+        --stack-set-name LocationServiceStackSet \
         --profile "$aws_profile"
+
+    # Get API keys from each region and deploy API Gateway
+    for region in $DEPLOY_REGIONS; do
+        echo "Getting Location Service API key for $region..."
+        API_KEY_VALUE=$(aws location describe-key \
+            --key-name "DemoLocationApiKey" \
+            --region "$region" \
+            --profile "$aws_profile" \
+            --query 'Key' \
+            --output text)
+
+        if [ -z "$API_KEY_VALUE" ]; then
+            echo "API Key Value could not be retrieved for $region. Deployment halted."
+            exit 1
+        fi
+        echo "API key retrieved for $region"
+
+        # Create API Gateway stack instance for this region
+        aws cloudformation create-stack-instances \
+            --stack-set-name ApiGatewayStackSet \
+            --accounts "[$(aws sts get-caller-identity --query 'Account' --output text)]" \
+            --regions "[$region]" \
+            --parameter-overrides ParameterKey=LocationApiKeyValue,ParameterValue=$API_KEY_VALUE \
+                                ParameterKey=DomainName,ParameterValue=$DOMAIN_NAME \
+                                ParameterKey=HostedZoneId,ParameterValue=$HostedZoneId \
+                                ParameterKey=CORSOrigin,ParameterValue=$CORS_ORIGIN \
+            --operation-preferences MaxConcurrentCount=1,FailureToleranceCount=0 \
+            --profile "$aws_profile"
+
+        # Wait for API Gateway stack instance to complete
+        echo "Waiting for API Gateway stack instance to complete in $region..."
+        aws cloudformation wait stack-set-operation-complete \
+            --stack-set-name ApiGatewayStackSet \
+            --profile "$aws_profile"
+    done
 
     # Set up DNS records for each region
     for region in $DEPLOY_REGIONS; do
@@ -342,24 +375,41 @@ delete_stacks() {
         fi
     done
 
-    # Delete stack instances
+    # Delete API Gateway stack instances first
     aws cloudformation delete-stack-instances \
-        --stack-set-name GeoServicesStackSet \
+        --stack-set-name ApiGatewayStackSet \
         --accounts "[$(aws sts get-caller-identity --query 'Account' --output text)]" \
         --regions "$REGIONS_JSON" \
         --operation-preferences MaxConcurrentCount=10,FailureToleranceCount=0 \
         --no-retain-stacks \
         --profile "$aws_profile"
 
-    # Wait for stack instance deletion
-    echo "Waiting for stack instances to be deleted..."
+    echo "Waiting for API Gateway stack instances to be deleted..."
     aws cloudformation wait stack-set-operation-complete \
-        --stack-set-name GeoServicesStackSet \
+        --stack-set-name ApiGatewayStackSet \
         --profile "$aws_profile"
 
-    # Delete the stack set
+    # Delete Location Service stack instances
+    aws cloudformation delete-stack-instances \
+        --stack-set-name LocationServiceStackSet \
+        --accounts "[$(aws sts get-caller-identity --query 'Account' --output text)]" \
+        --regions "$REGIONS_JSON" \
+        --operation-preferences MaxConcurrentCount=10,FailureToleranceCount=0 \
+        --no-retain-stacks \
+        --profile "$aws_profile"
+
+    echo "Waiting for Location Service stack instances to be deleted..."
+    aws cloudformation wait stack-set-operation-complete \
+        --stack-set-name LocationServiceStackSet \
+        --profile "$aws_profile"
+
+    # Delete the stack sets
     aws cloudformation delete-stack-set \
-        --stack-set-name GeoServicesStackSet \
+        --stack-set-name ApiGatewayStackSet \
+        --profile "$aws_profile"
+
+    aws cloudformation delete-stack-set \
+        --stack-set-name LocationServiceStackSet \
         --profile "$aws_profile"
 
     echo "StackSet and all instances have been deleted"

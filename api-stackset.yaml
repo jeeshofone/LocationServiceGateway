@@ -1,0 +1,116 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: 'AWS::Serverless-2016-10-31'
+Description: "API Gateway deployment for Location Services"
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: The domain name for the Geo API Gateway
+  HostedZoneId:
+    Type: String
+    Description: The Route 53 hosted zone ID for the domain name
+  CORSOrigin:
+    Type: String
+    Description: The domain-name origin for the CORS policy
+  LocationApiKeyValue:
+    Type: String
+    Description: The API Key value from Location Service
+    NoEcho: true
+
+Resources:
+  Certificate:
+    Type: "AWS::CertificateManager::Certificate"
+    Properties:
+      DomainName: !Ref DomainName
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+      ValidationMethod: "DNS"
+
+  GeoApiGateway:
+    Type: "AWS::Serverless::Api"
+    Properties:
+      Description: "API Geo Proxy Service for specific region"
+      StageName: "Prod"
+      EndpointConfiguration: REGIONAL
+      Domain:
+        DomainName: !Ref DomainName
+        CertificateArn: !Ref Certificate
+      DefinitionBody:
+        swagger: '2.0'
+        info:
+          title: !Ref "AWS::StackName"
+        paths:
+          '/{proxy+}':
+            get:
+              produces:
+                - "application/json"
+              responses:
+                "200":
+                  description: "200 response"
+                  headers:
+                    Access-Control-Allow-Origin:
+                      type: 'string'
+                      default: !Sub "'${CORSOrigin}'"
+                    Access-Control-Allow-Headers:
+                      type: 'string'
+                      default: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+                    Access-Control-Allow-Methods:
+                      type: 'string'
+                      default: "'GET,OPTIONS'"
+              x-amazon-apigateway-integration:
+                httpMethod: 'ANY'
+                type: 'http_proxy'
+                uri: !Sub 'https://maps.geo.${AWS::Region}.amazonaws.com/{proxy}?key=${LocationApiKeyValue}'
+                requestParameters:
+                  integration.request.path.proxy: 'method.request.path.proxy'
+                responses:
+                  default:
+                    statusCode: "200"
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Origin: !Sub "'${CORSOrigin}'"
+                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+                      method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+            options:
+              summary: "CORS support for preflight requests"
+              consumes:
+                - "application/json"
+              produces:
+                - "application/json"
+              responses:
+                "200":
+                  description: "200 response"
+                  headers:
+                    Access-Control-Allow-Origin:
+                      type: "string"
+                      default: !Sub "'${CORSOrigin}'"
+                    Access-Control-Allow-Methods:
+                      type: "string"
+                      default: "'GET,POST,OPTIONS'"
+                    Access-Control-Allow-Headers:
+                      type: "string"
+                      default: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              x-amazon-apigateway-integration:
+                type: "mock"
+                requestTemplates:
+                  application/json: "{ \"statusCode\": 200 }"
+                responses:
+                  default:
+                    statusCode: "200"
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Origin: !Sub "'${CORSOrigin}'"
+                      method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+                responseTemplates:
+                  application/json: "{}"
+
+Outputs:
+  ApiEndpoint:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${DomainName}/Prod"
+  RegionalDomainName:
+    Description: "Regional domain name for API Gateway"
+    Value: !Sub "${GeoApiGateway}.execute-api.${AWS::Region}.amazonaws.com"
+  RegionalHostedZoneId:
+    Description: "Regional hosted zone ID for API Gateway"
+    Value: !GetAtt GeoApiGateway.RegionalHostedZoneId

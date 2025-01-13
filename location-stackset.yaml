@@ -1,0 +1,30 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "AWS Location Service API Key deployment"
+
+Parameters:
+  CORSOrigin:
+    Type: String
+    Description: The domain-name origin for the CORS policy
+
+Resources:
+  LocationApiKey:
+    Type: 'AWS::Location::APIKey'
+    Properties:
+      Description: 'API key for accessing maps in Location Service'
+      KeyName: 'DemoLocationApiKey'
+      NoExpiry: true
+      ForceUpdate: true
+      ForceDelete: true
+      Restrictions:
+        AllowActions:
+          - "geo-maps:*"
+        AllowReferers:
+          - !Sub 'https://${CORSOrigin}/*'
+          - !Sub 'https://${CORSOrigin}/'
+        AllowResources:
+          - !Sub "arn:aws:geo-maps:${AWS::Region}::provider/default"
+
+Outputs:
+  ApiKeyName:
+    Description: "Name of the created Location Service API Key"
+    Value: "DemoLocationApiKey"
