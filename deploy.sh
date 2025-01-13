@@ -188,11 +188,10 @@ remove_website() {
     echo "Website infrastructure removed"
 }
 
-# Deploys geo mapping services and API infrastructure across specified regions
+# Deploys geo mapping services and API infrastructure across specified regions using StackSets
 #
 # Performs the following operations:
-# - Deploys CloudFormation stacks for geo mapping services
-# - Creates and configures API keys
+# - Creates and deploys CloudFormation StackSet for all regions
 # - Sets up custom domain names in API Gateway
 # - Configures Route53 latency-based routing
 #
@@ -204,7 +203,7 @@ remove_website() {
 #   aws_profile - AWS CLI profile name
 deployfunction() {
     # Make sure the user is aware that the script will deploy to the specified regions and prompt for confirmation
-    echo "This script will deploy the Geo Mapping Services and Geo API Services to the specified regions using AWS CLI."
+    echo "This script will deploy the Geo Mapping Services and Geo API Services to the specified regions using CloudFormation StackSets."
     echo "Those regions are: $DEPLOY_REGIONS"
     read -p "Are you sure you want to continue? (y/n) " -n 1 -r
     echo 
@@ -213,65 +212,91 @@ deployfunction() {
         exit 1
     fi
 
-    # Loop through the specified regions for deployment
+    # Convert space-separated regions to JSON array for AWS CLI
+    REGIONS_JSON="["
     for region in $DEPLOY_REGIONS; do
-        echo "Deploying to $region"
-        aws cloudformation deploy --profile "$aws_profile" --template-file geo-services.yaml --stack-name GeoMappingServicesStack --region $region --capabilities CAPABILITY_NAMED_IAM --parameter-overrides CORSOrigin=$CORS_ORIGIN UpdateTimestamp=$(date +%s)
+        REGIONS_JSON="$REGIONS_JSON\"$region\","
+    done
+    REGIONS_JSON="${REGIONS_JSON%,}]"
 
-        # Fetch the API Key value using AWS CLI and AWS Location Service's describe-key
-        API_KEY_VALUE=$(aws location describe-key --profile "$aws_profile" --key-name DemoLocationApiKey --region $region --query 'Key' --output text)
-        echo "API Key Value for $region: $API_KEY_VALUE"
+    # Create StackSet
+    aws cloudformation create-stack-set \
+        --stack-set-name GeoServicesStackSet \
+        --template-body file://stackset-template.yaml \
+        --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
+        --permission-model SELF_MANAGED \
+        --parameters ParameterKey=DomainName,ParameterValue=$DOMAIN_NAME \
+                    ParameterKey=HostedZoneId,ParameterValue=$HostedZoneId \
+                    ParameterKey=CORSOrigin,ParameterValue=$CORS_ORIGIN \
+        --profile "$aws_profile"
 
-        # Check if API_KEY_VALUE is successfully retrieved; if not, halt the process
-        if [ -z "$API_KEY_VALUE" ]; then
-            echo "API Key Value could not be retrieved. Deployment halted."
-            exit 1
-        fi
+    # Create stack instances in all regions
+    aws cloudformation create-stack-instances \
+        --stack-set-name GeoServicesStackSet \
+        --accounts "[$(aws sts get-caller-identity --query 'Account' --output text)]" \
+        --regions "$REGIONS_JSON" \
+        --operation-preferences MaxConcurrentCount=10,FailureToleranceCount=0 \
+        --profile "$aws_profile"
 
-        # Deploy geo-api.yaml with the retrieved API Key value
-        aws cloudformation deploy --profile "$aws_profile" --template-file geo-api.yaml --stack-name GeoAPIServicesStack --region $region --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ApiKeyValue=$API_KEY_VALUE DomainName=$DOMAIN_NAME HostedZoneId=${HostedZoneId} CORSOrigin=${CORS_ORIGIN} UpdateTimestamp=$(date +%s)
+    # Wait for stack instances to complete
+    echo "Waiting for stack instances to complete..."
+    aws cloudformation wait stack-set-operation-complete \
+        --stack-set-name GeoServicesStackSet \
+        --profile "$aws_profile"
 
-        # Fetch the Regional Domain Name using AWS CLI and AWS API Gateway's get-domain-names
-        REGIONAL_DOMAIN_NAME=$(aws apigateway get-domain-names --region $region --profile "$aws_profile" --query "items[?domainName=='$DOMAIN_NAME'].regionalDomainName" --output text)
-        if [ -z "$REGIONAL_DOMAIN_NAME" ]; then
-            echo "Regional Domain Name could not be retrieved. Deployment halted."
-            exit 1
-        fi
-        echo "Regional Domain Name for $region: $REGIONAL_DOMAIN_NAME"
+    # Set up DNS records for each region
+    for region in $DEPLOY_REGIONS; do
+        # Get stack instance outputs
+        OUTPUTS=$(aws cloudformation describe-stack-instance \
+            --stack-set-name GeoServicesStackSet \
+            --stack-instance-account $(aws sts get-caller-identity --query 'Account' --output text) \
+            --stack-instance-region "$region" \
+            --profile "$aws_profile" \
+            --query 'StackInstance.StackId' --output text)
 
-        # Dynamically set the HostedZoneId for API Gateway
-        REGIONAL_HOSTED_ZONE_ID=$(get_hosted_zone_id "$region")
-        if [[ -z "$REGIONAL_HOSTED_ZONE_ID" ]] || [[ -z "$REGIONAL_DOMAIN_NAME" ]]; then
-            echo "Missing information for $region; skipping DNS update."
-            continue
-        fi
+        REGIONAL_DOMAIN_NAME=$(aws cloudformation describe-stacks \
+            --stack-name "$OUTPUTS" \
+            --region "$region" \
+            --profile "$aws_profile" \
+            --query 'Stacks[0].Outputs[?OutputKey==`RegionalDomainName`].OutputValue' --output text)
 
-        # Creating latency-based routing DNS record
-        aws route53 change-resource-record-sets --region us-east-1 --profile "$aws_profile" --hosted-zone-id "$HostedZoneId" --change-batch '{
-            "Changes": [{
-                "Action": "UPSERT",
-                "ResourceRecordSet": {
-                "Name": "'"$DOMAIN_NAME"'",
-                "Type": "A",
-                "SetIdentifier": "'$region'",
-                "Region": "'$region'",
-                "AliasTarget": {
-                    "HostedZoneId": "'$REGIONAL_HOSTED_ZONE_ID'",
-                    "DNSName": "'$REGIONAL_DOMAIN_NAME'",
-                    "EvaluateTargetHealth": false
-                }
-                }
-            }]}'
-        echo "Updated DNS for latency-based routing for $region."
+        REGIONAL_HOSTED_ZONE_ID=$(aws cloudformation describe-stacks \
+            --stack-name "$OUTPUTS" \
+            --region "$region" \
+            --profile "$aws_profile" \
+            --query 'Stacks[0].Outputs[?OutputKey==`RegionalHostedZoneId`].OutputValue' --output text)
+
+        # Create latency-based routing DNS record
+        aws route53 change-resource-record-sets \
+            --hosted-zone-id "$HostedZoneId" \
+            --change-batch '{
+                "Changes": [{
+                    "Action": "UPSERT",
+                    "ResourceRecordSet": {
+                        "Name": "'"$DOMAIN_NAME"'",
+                        "Type": "A",
+                        "SetIdentifier": "'"$region"'",
+                        "Region": "'"$region"'",
+                        "AliasTarget": {
+                            "HostedZoneId": "'"$REGIONAL_HOSTED_ZONE_ID"'",
+                            "DNSName": "'"$REGIONAL_DOMAIN_NAME"'",
+                            "EvaluateTargetHealth": false
+                        }
+                    }
+                }]
+            }' \
+            --profile "$aws_profile"
+
+        echo "Updated DNS for latency-based routing for $region"
     done
 }
 
-# Removes all deployed infrastructure across specified regions
+# Removes all deployed infrastructure across specified regions using StackSets
 #
 # Performs the following cleanup:
-# - Deletes CloudFormation stacks in each region
+# - Deletes CloudFormation StackSet instances in all regions
 # - Removes Route53 DNS records for regional endpoints
-# - Waits for stack deletion completion
+# - Deletes the StackSet
 #
 # Global variables used:
 #   DEPLOY_REGIONS - Space-separated list of target AWS regions
@@ -279,55 +304,65 @@ deployfunction() {
 #   HostedZoneId - Route53 hosted zone ID
 #   aws_profile - AWS CLI profile name
 delete_stacks() {
-    # Make sure the user is aware that the script will deploy to the specified regions and prompt for confirmation
-    echo "This script will delete the Geo Mapping Services and Geo API Services to the specified regions using AWS CLI."
+    echo "This script will delete the Geo Services StackSet from all regions."
     echo "Those regions are: $DEPLOY_REGIONS"
     read -p "Are you sure you want to continue? (y/n) " -n 1 -r
     echo 
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Deployment halted."
+        echo "Deletion halted."
         exit 1
     fi
 
-    echo "Removing the stacks from the specified regions"
+    # Convert space-separated regions to JSON array
+    REGIONS_JSON="["
     for region in $DEPLOY_REGIONS; do
-        if fetch_regional_domain_and_hosted_zone "$region" "$aws_profile"; then 
-            # Only proceed if the function was successful
-            echo "Removing stacks from $region"
-            aws cloudformation delete-stack --profile "$aws_profile" --stack-name GeoMappingServicesStack --region $region
-            aws cloudformation wait stack-delete-complete --profile "$aws_profile" --stack-name GeoMappingServicesStack --region $region
-            aws cloudformation delete-stack --profile "$aws_profile" --stack-name GeoAPIServicesStack --region $region
-            aws cloudformation wait stack-delete-complete --profile "$aws_profile" --stack-name GeoAPIServicesStack --region $region
+        REGIONS_JSON="$REGIONS_JSON\"$region\","
+    done
+    REGIONS_JSON="${REGIONS_JSON%,}]"
 
-            # Fetch and delete DNS record for $region
-            RECORD=$(aws route53 list-resource-record-sets --profile "$aws_profile" --hosted-zone-id "$HostedZoneId" \
-            | jq -r ".ResourceRecordSets[] | select(.Name==\"$DOMAIN_NAME.\" and .Region==\"$region\")")
+    # Remove DNS records first
+    for region in $DEPLOY_REGIONS; do
+        RECORD=$(aws route53 list-resource-record-sets \
+            --hosted-zone-id "$HostedZoneId" \
+            --profile "$aws_profile" \
+            --query "ResourceRecordSets[?SetIdentifier=='$region']" \
+            --output text)
 
-            if [[ -n "$RECORD" ]]; then
-                aws route53 change-resource-record-sets --region us-east-1 --profile "$aws_profile" --hosted-zone-id "$HostedZoneId" --change-batch '{
+        if [[ -n "$RECORD" ]]; then
+            aws route53 change-resource-record-sets \
+                --hosted-zone-id "$HostedZoneId" \
+                --change-batch '{
                     "Changes": [{
                         "Action": "DELETE",
-                        "ResourceRecordSet": {
-                        "Name": "'"$DOMAIN_NAME"'",
-                        "Type": "A",
-                        "SetIdentifier": "'$region'",
-                        "Region": "'$region'",
-                        "AliasTarget": {
-                            "HostedZoneId": "'$REGIONAL_HOSTED_ZONE_ID'",
-                            "DNSName": "'$REGIONAL_DOMAIN_NAME'",
-                            "EvaluateTargetHealth": false
-                        }
-                        }
-                    }]}'
-
-                echo "Deleted DNS record for $region - $DOMAIN_NAME in $HostedZoneId for $HOSTED_ZONE_ID"
-            else
-                echo "No matching DNS record found for $region - $DOMAIN_NAME."
-            fi
-        else
-            echo "Skipping cleanup for $region due to missing information."
+                        "ResourceRecordSet": '"$RECORD"'
+                    }]
+                }' \
+                --profile "$aws_profile"
+            echo "Deleted DNS record for $region"
         fi
     done
+
+    # Delete stack instances
+    aws cloudformation delete-stack-instances \
+        --stack-set-name GeoServicesStackSet \
+        --accounts "[$(aws sts get-caller-identity --query 'Account' --output text)]" \
+        --regions "$REGIONS_JSON" \
+        --operation-preferences MaxConcurrentCount=10,FailureToleranceCount=0 \
+        --no-retain-stacks \
+        --profile "$aws_profile"
+
+    # Wait for stack instance deletion
+    echo "Waiting for stack instances to be deleted..."
+    aws cloudformation wait stack-set-operation-complete \
+        --stack-set-name GeoServicesStackSet \
+        --profile "$aws_profile"
+
+    # Delete the stack set
+    aws cloudformation delete-stack-set \
+        --stack-set-name GeoServicesStackSet \
+        --profile "$aws_profile"
+
+    echo "StackSet and all instances have been deleted"
 }
 
 # Validates required parameters and environment prerequisites
