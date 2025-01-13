@@ -37,20 +37,37 @@ The solution requires configuration for both the API Gateway and static website 
 
 ## Usage
 
-### Deploy API Gateway and Location Services
+### Deploy API Gateway and Location Services using StackSets
+
+The deployment uses AWS CloudFormation StackSets to manage multi-region deployments:
+
+1. Location Service API Keys StackSet:
 ```bash
-./deploy.sh \
-  --domain api.yourdomain.com \
-  --hosted-zone Z012345789ABCD \
-  --cors map.yourdomain.com \
-  --profile your-aws-profile
+aws cloudformation create-stack-set \
+  --stack-set-name location-service-keys \
+  --template-body file://location-stackset.yaml \
+  --parameters ParameterKey=CORSOrigin,ParameterValue=map.yourdomain.com
+```
+
+2. API Gateway StackSet (after Location Service keys are created):
+```bash
+aws cloudformation create-stack-set \
+  --stack-set-name api-gateway \
+  --template-body file://api-stackset.yaml \
+  --parameters \
+    ParameterKey=DomainName,ParameterValue=api.yourdomain.com \
+    ParameterKey=HostedZoneId,ParameterValue=Z012345789ABCD \
+    ParameterKey=CORSOrigin,ParameterValue=map.yourdomain.com \
+    ParameterKey=LocationApiKeyValue,ParameterValue=your-api-key-value
 ```
 
 Parameters:
-- `--domain`: API Gateway domain name
-- `--hosted-zone`: Route 53 hosted zone ID
-- `--cors`: Allowed CORS origin domain
-- `--profile`: AWS CLI profile (optional, defaults to 'default')
+- `DomainName`: API Gateway domain name
+- `HostedZoneId`: Route 53 hosted zone ID
+- `CORSOrigin`: Allowed CORS origin domain
+- `LocationApiKeyValue`: API Key value from Location Service (retrieved after first StackSet deployment)
+
+The StackSets will automatically manage the deployment across all specified regions, ensuring consistent infrastructure and configuration.
 
 ### Deploy Static Website
 ```bash
@@ -65,12 +82,27 @@ aws cloudformation deploy \
 ```
 
 ### Cleanup
-Remove API Gateway and Location Services:
+Remove API Gateway and Location Services StackSets:
 ```bash
-./deploy.sh --remove \
-  --domain api.yourdomain.com \
-  --hosted-zone Z012345789ABCD \
-  --profile your-aws-profile
+# Delete API Gateway StackSet instances first
+aws cloudformation delete-stack-instances \
+  --stack-set-name api-gateway \
+  --regions "us-east-1 us-west-2" \
+  --no-retain-stacks
+
+# Then delete the API Gateway StackSet
+aws cloudformation delete-stack-set \
+  --stack-set-name api-gateway
+
+# Delete Location Service StackSet instances
+aws cloudformation delete-stack-instances \
+  --stack-set-name location-service-keys \
+  --regions "us-east-1 us-west-2" \
+  --no-retain-stacks
+
+# Finally delete the Location Service StackSet
+aws cloudformation delete-stack-set \
+  --stack-set-name location-service-keys
 ```
 
 Remove website hosting:
@@ -82,8 +114,8 @@ aws cloudformation delete-stack --stack-name map-website
 
 The solution uses multiple CloudFormation templates:
 
-- `geo-api.yaml`: API Gateway configuration with Location Services integration
-- `geo-services.yaml`: Location Service API key and map resource creation
+- `location-stackset.yaml`: Location Service API key creation (deployed as StackSet)
+- `api-stackset.yaml`: API Gateway configuration with Location Services integration (deployed as StackSet)
 - `s3-cloudfront.yaml`: S3 bucket and CloudFront distribution for static website hosting
 
 ## Architecture Diagram
