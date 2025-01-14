@@ -16,26 +16,34 @@ Parameters:
     Type: String
     Description: The API Key value from Location Service
     NoEcho: true
+    Default: "placeholder"
 
 Resources:
   Certificate:
-    Type: "AWS::CertificateManager::Certificate"
+    Type: AWS::CertificateManager::Certificate
     Properties:
       DomainName: !Ref DomainName
+      ValidationMethod: DNS
       DomainValidationOptions:
         - DomainName: !Ref DomainName
           HostedZoneId: !Ref HostedZoneId
-      ValidationMethod: "DNS"
 
   GeoApiGateway:
     Type: "AWS::Serverless::Api"
     Properties:
       Description: "API Geo Proxy Service for specific region"
       StageName: "Prod"
-      EndpointConfiguration: REGIONAL
+      EndpointConfiguration:
+        Type: REGIONAL
       Domain:
         DomainName: !Ref DomainName
         CertificateArn: !Ref Certificate
+        EndpointConfiguration: REGIONAL
+        SecurityPolicy: TLS_1_2
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          MetricsEnabled: true
       DefinitionBody:
         swagger: '2.0'
         info:
@@ -108,9 +116,6 @@ Outputs:
   ApiEndpoint:
     Description: "API Gateway endpoint URL"
     Value: !Sub "https://${DomainName}/Prod"
-  RegionalDomainName:
-    Description: "Regional domain name for API Gateway"
-    Value: !Sub "${GeoApiGateway}.execute-api.${AWS::Region}.amazonaws.com"
-  RegionalHostedZoneId:
-    Description: "Regional hosted zone ID for API Gateway"
-    Value: !GetAtt GeoApiGateway.RegionalHostedZoneId
+  ApiGatewayId:
+    Description: "API Gateway ID"
+    Value: !Ref GeoApiGateway

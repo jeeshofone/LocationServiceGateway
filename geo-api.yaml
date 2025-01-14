@@ -151,3 +151,9 @@ Outputs:
   ApiEndpoint:
     Description: "API Gateway endpoint URL"
     Value: !Sub "https://${DomainName}/Prod"
+  RegionalDomainName:
+    Description: "Regional domain name for API Gateway"
+    Value: !Sub "${GeoApiGateway}.execute-api.${AWS::Region}.amazonaws.com"
+  RegionalHostedZoneId:
+    Description: "Regional hosted zone ID for API Gateway"
+    Value: !Sub "${GeoApiGateway}"

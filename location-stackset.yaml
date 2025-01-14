@@ -27,4 +27,7 @@ Resources:
 Outputs:
   ApiKeyName:
     Description: "Name of the created Location Service API Key"
-    Value: "DemoLocationApiKey"
+    Value: 'DemoLocationApiKey'
+  ApiKeyValue:
+    Description: "Value of the created Location Service API Key"
+    Value: !Ref LocationApiKey

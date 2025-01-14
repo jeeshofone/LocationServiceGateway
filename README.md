@@ -1,24 +1,51 @@
 # Location Service Gateway with Static Website Hosting
 
-This project automates the deployment of Amazon Location Services across specified AWS regions with CloudFront-enabled static website hosting. The solution creates an API Gateway integrated with Location Services (with API Key references and CORS settings) and sets up S3/CloudFront infrastructure for hosting the map interface. Users can access both the map interface and API endpoints through custom domains, with backend services automatically routing to the closest region for optimal performance.
+This project automates the deployment of Amazon Location Services across multiple AWS regions with CloudFront-enabled static website hosting. The solution:
+
+1. Deploys a static website using S3 and CloudFront to host the map interface
+2. Creates Location Service API keys in each specified region
+3. Deploys API Gateway with Location Service integration in each region
+4. Sets up latency-based DNS routing for optimal performance
+
+The end result is a globally distributed map interface that users can access through custom domains, with API requests automatically routed to the nearest region.
 
 ## Overview
 
-Building on the experience from developing [findyourfivepm.com](https://findyourfivepm.com), this script solves a crucial challenge: ensuring low-latency, high-quality, and cost-effective map tile delivery worldwide. Amazon Location Service (ALS) was chosen for its robust features but required an innovative approach to overcome regional latency when serving map tiles. 
+This solution addresses the challenge of serving map tiles with low latency worldwide using Amazon Location Service (ALS). While ALS provides robust mapping capabilities, it is region-specific. This implementation:
 
-For an in-depth exploration of this project's conception, challenges, and the decision-making process, see my detailed blog post: [Regional to Global - Adapting Amazon Location Service for Worldwide Use](https://www.123cloud.st/p/regional-to-global-adapting-amazon).
+1. Uses CloudFront to serve the static website content globally
+2. Creates regional API Gateways that proxy requests to ALS
+3. Implements latency-based routing to direct users to the nearest region
+4. Manages API keys and CORS settings across regions
+
+The architecture ensures optimal performance by serving map tiles from the closest available region while maintaining a single global endpoint for the API.
 
 ### Prerequisites
 
-Before running this script, ensure that you have executed `aws configure` to set up your CLI with access keys, secret keys, and default region information. Please use a profile that has permissions to create resources specified in the script. My preference is to use AWS SSO to manage multiple accounts and roles. 
+1. AWS CLI configured with appropriate credentials:
+   ```bash
+   aws configure
+   ```
+   
+2. Required permissions to create:
+   - CloudFormation StackSets
+   - S3 buckets
+   - CloudFront distributions
+   - API Gateway
+   - Location Service resources
+   - Route 53 records
+   - IAM roles
 
-IMPORTANT: ensure that you are in the right AWS account before running the script. You can verify this by running the following command:
+3. Two domain names registered in Route 53:
+   - One for the API Gateway (e.g., geo.example.com)
+   - One for the website (e.g., maps.example.com)
 
+4. Route 53 hosted zone ID for your domain
+
+Verify your AWS account access:
 ```bash
 aws sts get-caller-identity --profile <your-profile>
 ```
-
-You will need a domain name and a Hosted Zone ID for the domain to serve the API from. The domain name should be a registered domain, and the Hosted Zone ID should be available in the AWS Route 53 service. You can use a domain registered with AWS Route 53 or a domain registered with another registrar as long as the Hosted Zone ID is available in AWS Route 53.
 
 ## Configuration
 
@@ -43,7 +70,8 @@ The `deploy.sh` script automates the deployment of both the API Gateway/Location
 
 ```bash
 ./deploy.sh \
-  --domain api.yourdomain.com \
+  --api-domain api.yourdomain.com \
+  --web-domain map.yourdomain.com \
   --hosted-zone Z012345789ABCD \
   --cors map.yourdomain.com \
   --bucket your-bucket-name \

@@ -1,0 +1,28 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "ACM Certificate for API Gateway domains"
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: The domain name for the API Gateway
+  HostedZoneId:
+    Type: String
+    Description: The Route 53 hosted zone ID for the domain name
+
+Resources:
+  Certificate:
+    Type: "AWS::CertificateManager::Certificate"
+    Properties:
+      DomainName: !Ref DomainName
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+      ValidationMethod: "DNS"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-api-cert"
+
+Outputs:
+  CertificateArn:
+    Description: "ARN of the created certificate"
+    Value: !Ref Certificate

@@ -4,10 +4,16 @@ Description: CloudFormation template for setting up S3 and CloudFront to host st
 Parameters:
   DomainName:
     Type: String
-    Description: The domain name for the CloudFront distribution
-  S3BucketName:
+    Description: "The domain name for the CloudFront distribution (e.g., maps.example.com)"
+    AllowedPattern: "^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\\.[A-Za-z0-9-]{1,63})*$"
+    ConstraintDescription: "Must be a valid domain name (e.g., maps.example.com)"
+    MinLength: 1
+  ApiDomainName:
     Type: String
-    Description: The name of the S3 bucket to create
+    Description: "The domain name for the API Gateway endpoint"
+    AllowedPattern: "^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\\.[A-Za-z0-9-]{1,63})*$"
+    ConstraintDescription: "Must be a valid domain name (e.g., api.example.com)"
+    MinLength: 1
   HostedZoneId:
     Type: String
     Description: The Route 53 hosted zone ID for the domain name
@@ -16,7 +22,10 @@ Resources:
   S3Bucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Ref S3BucketName
+      BucketName: !Join 
+        - '-'
+        - - !Select [0, !Split ['-', !Ref 'AWS::StackName']]
+          - !Select [2, !Split [/, !Ref 'AWS::StackId']]
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -149,7 +158,7 @@ Resources:
                         container: "map",
                         center: [-123.1187, 49.2819],
                         zoom: 10,
-                        style: `{api_endpoint}/v2/styles/Standard/descriptor`,
+                        style: `https://{api_endpoint}/v2/styles/Standard/descriptor`,
                         validateStyle: false,
                       }});
 
@@ -198,15 +207,16 @@ Resources:
               - Effect: Allow
                 Action:
                   - 's3:PutObject'
-                Resource: !Sub 'arn:aws:s3:::${S3BucketName}/*'
+                Resource: !Sub 'arn:aws:s3:::${S3Bucket}/*'
 
   S3BucketSetup:
     Type: AWS::CloudFormation::CustomResource
     Properties:
       ServiceToken: !GetAtt DeployLambdaFunction.Arn
       BucketName: !Ref S3Bucket
-      ApiEndpoint: !Sub "https://${DomainName}/Prod"
+      ApiEndpoint: !Ref ApiDomainName
       Region: !Ref "AWS::Region"
+      ContentVersion: "1"  # Increment this to trigger content updates
     DependsOn: [DeployLambdaFunction, S3Bucket, S3BucketPolicy]
 
   Route53RecordSet:
@@ -236,6 +246,9 @@ Outputs:
   CloudFrontDomain:
     Description: "CloudFront distribution domain name"
     Value: !GetAtt CloudFrontDistribution.DomainName
+  DistributionId:
+    Description: "CloudFront distribution ID"
+    Value: !Ref CloudFrontDistribution
   WebsiteURL:
     Description: "Website URL"
     Value: !Sub "https://${DomainName}"
