@@ -25,9 +25,12 @@ You will need a domain name and a Hosted Zone ID for the domain to serve the API
 Customize the following variables in the script as per your requirements:
 
 - `DOMAIN_NAME`: The domain name to serve the GEO API from. (Note: This domain should be registered and available in AWS Route 53.)
-- `CORS_ORIGIN`: Your frontend domain. (Note: For testing, you can set this to "*", but it's recommended to specify your frontend domain for security purposes.)
+- `CORS_ORIGIN`: Your frontend origin including the scheme, for example `https://example.com`. (For testing you can set this to "*".)
+- `ALLOWED_REFERERS`: Comma-separated Referer patterns the Location API key accepts, for example `https://example.com/*`. This is what stops other sites using your key.
 - `HostedZoneId`: The Hosted Zone ID of your domain. 
-- `DEPLOY_REGIONS`: A space-separated list of regions where you wish to deploy the services. Ensure these regions support AWS Location Service. The deploy.sh file has a list of regions where AWS Location Service is available. You can add or remove regions as per your requirements.
+- `DEPLOY_REGIONS`: A space-separated list of regions where you wish to deploy the services. They must support Amazon Location Service Maps V2; deploy.sh lists the supported regions. 
+
+Every setting can also be passed as an environment variable of the same name.
 
 ## Usage
 
@@ -46,8 +49,21 @@ When done cleaning up, you can remove the deployed stacks and DNS records. Run t
 
 The script utilizes `geo-api.yaml` and `geo-services.yaml` CloudFormation templates:
 
-- `geo-api.yaml`: Configures the API Gateway and integrates it with Location Services, specifying direct API Key references and CORS settings.
-- `geo-services.yaml`: Creates an API key for accessing maps in Location Service, along with the map resource itself.
+- `geo-api.yaml`: Creates a regional API Gateway on your custom domain that proxies requests to the Amazon Location Service Maps V2 endpoint in that region, adding the API key and CORS settings.
+- `geo-services.yaml`: Creates a Maps V2 API key (`LocationServiceGatewayKey-<region>`) limited to your referers. Maps V2 needs no map resource.
+
+## Using it from a map
+
+Point MapLibre GL JS at the gateway's style descriptor:
+
+```js
+new maplibregl.Map({
+  container: 'map',
+  style: 'https://geo.example.com/v2/styles/Standard/descriptor', // also Monochrome, Hybrid, Satellite; add ?color-scheme=Dark
+});
+```
+
+Note: the style descriptor returned by Amazon Location points tiles, sprites and glyphs straight at `maps.geo.<region>.amazonaws.com`, with the API key in the tile URL. The descriptor comes from the region nearest the user, so tiles do too, but the key is visible in the browser. The referer restriction on the key is what protects it.
 
 ## Architecture Diagram
 

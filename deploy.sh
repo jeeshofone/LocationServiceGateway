@@ -10,11 +10,13 @@
 # Please make sure to configure your AWS CLI with aws configure before running this script and use a profile with the necessary permissions
 
 # Customize these variables based on your requirements
-DOMAIN_NAME="geo.example.com" # Set this to the domain you wish to serve the GEO API from
-CORS_ORIGIN="abcde12345.cloudfront.net" # Set this to your frontend domain - You can set this to "*" for testing. However, this will allow any origin to access the API, and could result in security vulnerabilities and high costs. Please set this to your frontend domain.
-HostedZoneId="Z012345789ABCD" # Set this to the Hosted Zone ID of your domain
-DEPLOY_REGIONS="us-east-1 ap-southeast-2" # Space-separated list of regions to deploy to. Make sure the regions are supported by AWS Location Service. The available list at the time of writing is below.
-#us-east-2 us-east-1 us-west-2 ap-south-1 ap-southeast-1 ap-southeast-2 ap-northeast-1 ca-central-1 eu-central-1 eu-west-1 eu-west-2 eu-north-1 sa-east-1
+# Each value can also be set as an environment variable of the same name.
+DOMAIN_NAME="${DOMAIN_NAME:-geo.example.com}" # The domain to serve the GEO API from
+CORS_ORIGIN="${CORS_ORIGIN:-https://example.com}" # Your frontend origin, including https://. "*" is allowed for testing only.
+ALLOWED_REFERERS="${ALLOWED_REFERERS:-https://example.com/*}" # Comma-separated Referer patterns the Location API key accepts (your frontend URLs)
+HostedZoneId="${HostedZoneId:-Z012345789ABCD}" # The Route 53 Hosted Zone ID of your domain
+DEPLOY_REGIONS="${DEPLOY_REGIONS:-us-east-1 ap-southeast-2}" # Space-separated list of regions to deploy to. They must support Amazon Location Service Maps V2. Supported at the time of writing:
+#us-east-1 us-east-2 us-west-2 ap-south-1 ap-southeast-1 ap-southeast-2 ap-southeast-5 ap-northeast-1 ca-central-1 eu-central-1 eu-west-1 eu-west-2 eu-south-2 eu-north-1 sa-east-1
 
 # The following regions are also supported for AWS GovCloud (US) customers and can be added to the DEPLOY_REGIONS list if required. however, you will need to update the Mapping section in the geo-services.yaml file to include the GovCloud region names and endpoints:
 #us-gov-west-1 us-gov-west-1 us-gov-west-1
@@ -93,11 +95,10 @@ deployfunction() {
     # Loop through the specified regions for deployment
     for region in $DEPLOY_REGIONS; do
         echo "Deploying to $region"
-        aws cloudformation deploy --profile "$aws_profile" --template-file geo-services.yaml --stack-name GeoMappingServicesStack --region $region --capabilities CAPABILITY_NAMED_IAM --parameter-overrides CORSOrigin=$CORS_ORIGIN UpdateTimestamp=$(date +%s)
+        aws cloudformation deploy --profile "$aws_profile" --template-file geo-services.yaml --stack-name GeoMappingServicesStack --region "$region" --parameter-overrides "AllowedReferers=$ALLOWED_REFERERS" "UpdateTimestamp=$(date +%s)" || exit 1
 
-        # Fetch the API Key value using AWS CLI and AWS Location Service's describe-key
-        API_KEY_VALUE=$(aws location describe-key --profile "$aws_profile" --key-name DemoLocationApiKey --region $region --query 'Key' --output text)
-        echo "API Key Value for $region: $API_KEY_VALUE"
+        # Fetch the API Key value using AWS CLI and AWS Location Service's describe-key (not printed)
+        API_KEY_VALUE=$(aws location describe-key --profile "$aws_profile" --key-name "LocationServiceGatewayKey-$region" --region "$region" --query 'Key' --output text)
 
         # Check if API_KEY_VALUE is successfully retrieved; if not, halt the process
         if [ -z "$API_KEY_VALUE" ]; then
@@ -106,7 +107,7 @@ deployfunction() {
         fi
 
         # Deploy geo-api.yaml with the retrieved API Key value
-        aws cloudformation deploy --profile "$aws_profile" --template-file geo-api.yaml --stack-name GeoAPIServicesStack --region $region --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ApiKeyValue=$API_KEY_VALUE DomainName=$DOMAIN_NAME HostedZoneId=${HostedZoneId} CORSOrigin=${CORS_ORIGIN} UpdateTimestamp=$(date +%s)
+        aws cloudformation deploy --profile "$aws_profile" --template-file geo-api.yaml --stack-name GeoAPIServicesStack --region "$region" --capabilities CAPABILITY_AUTO_EXPAND --parameter-overrides "ApiKeyValue=$API_KEY_VALUE" "DomainName=$DOMAIN_NAME" "HostedZoneId=$HostedZoneId" "CORSOrigin=$CORS_ORIGIN" "UpdateTimestamp=$(date +%s)" || exit 1
 
         # Fetch the Regional Domain Name using AWS CLI and AWS API Gateway's get-domain-names
         REGIONAL_DOMAIN_NAME=$(aws apigateway get-domain-names --region $region --profile "$aws_profile" --query "items[?domainName=='$DOMAIN_NAME'].regionalDomainName" --output text)
@@ -186,7 +187,7 @@ delete_stacks() {
                         }
                     }]}'
 
-                echo "Deleted DNS record for $region - $DOMAIN_NAME in $HostedZoneId for $HOSTED_ZONE_ID"
+                echo "Deleted DNS record for $region - $DOMAIN_NAME in $HostedZoneId"
             else
                 echo "No matching DNS record found for $region - $DOMAIN_NAME."
             fi
