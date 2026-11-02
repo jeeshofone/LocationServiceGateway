@@ -65,6 +65,16 @@ new maplibregl.Map({
 
 Note: the style descriptor returned by Amazon Location points tiles, sprites and glyphs straight at `maps.geo.<region>.amazonaws.com`, with the API key in the tile URL. The descriptor comes from the region nearest the user, so tiles do too, but the key is visible in the browser. The referer restriction on the key is what protects it.
 
+### Hiding the key (optional)
+
+Set `HIDE_API_KEY=true` when you run `deploy.sh`. A small Lambda then serves `/v2/styles/*`: it fetches the descriptor with the key, rewrites the tile, sprite and glyph URLs to your gateway domain and removes the key. The gateway adds the key back on the way to Amazon Location, so the key never reaches the browser. The browser's Referer is still forwarded, so the key's referer restriction keeps working.
+
+The cost of this: every tile now goes through API Gateway, so you pay API Gateway request charges on top of Amazon Location's, and the style request runs through a Lambda.
+
+### Serving several sites from one gateway
+
+List every site in `ALLOWED_REFERERS` (for example `https://site-a.com/*,https://site-b.com/*`) and set `CORS_ORIGIN='*'`. Amazon Location already answers tile requests with `Access-Control-Allow-Origin: *`, so the referer list on the key is what limits use to your sites.
+
 ## Architecture Diagram
 
 Image: [Location Service Gateway](diagram.png)

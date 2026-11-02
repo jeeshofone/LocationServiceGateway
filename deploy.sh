@@ -17,6 +17,7 @@ ALLOWED_REFERERS="${ALLOWED_REFERERS:-https://example.com/*}" # Comma-separated 
 HostedZoneId="${HostedZoneId:-Z012345789ABCD}" # The Route 53 Hosted Zone ID of your domain
 DEPLOY_REGIONS="${DEPLOY_REGIONS:-us-east-1 ap-southeast-2}" # Space-separated list of regions to deploy to. They must support Amazon Location Service Maps V2. Supported at the time of writing:
 #us-east-1 us-east-2 us-west-2 ap-south-1 ap-southeast-1 ap-southeast-2 ap-southeast-5 ap-northeast-1 ca-central-1 eu-central-1 eu-west-1 eu-west-2 eu-south-2 eu-north-1 sa-east-1
+HIDE_API_KEY="${HIDE_API_KEY:-false}" # "true" adds a Lambda that strips the API key from style descriptors so it never reaches the browser (tiles then go through API Gateway)
 
 # The following regions are also supported for AWS GovCloud (US) customers and can be added to the DEPLOY_REGIONS list if required. however, you will need to update the Mapping section in the geo-services.yaml file to include the GovCloud region names and endpoints:
 #us-gov-west-1 us-gov-west-1 us-gov-west-1
@@ -107,7 +108,7 @@ deployfunction() {
         fi
 
         # Deploy geo-api.yaml with the retrieved API Key value
-        aws cloudformation deploy --profile "$aws_profile" --template-file geo-api.yaml --stack-name GeoAPIServicesStack --region "$region" --capabilities CAPABILITY_AUTO_EXPAND --parameter-overrides "ApiKeyValue=$API_KEY_VALUE" "DomainName=$DOMAIN_NAME" "HostedZoneId=$HostedZoneId" "CORSOrigin=$CORS_ORIGIN" "UpdateTimestamp=$(date +%s)" || exit 1
+        aws cloudformation deploy --profile "$aws_profile" --template-file geo-api.yaml --stack-name GeoAPIServicesStack --region "$region" --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND --parameter-overrides "ApiKeyValue=$API_KEY_VALUE" "DomainName=$DOMAIN_NAME" "HostedZoneId=$HostedZoneId" "CORSOrigin=$CORS_ORIGIN" "HideApiKey=$HIDE_API_KEY" "UpdateTimestamp=$(date +%s)" || exit 1
 
         # Fetch the Regional Domain Name using AWS CLI and AWS API Gateway's get-domain-names
         REGIONAL_DOMAIN_NAME=$(aws apigateway get-domain-names --region $region --profile "$aws_profile" --query "items[?domainName=='$DOMAIN_NAME'].regionalDomainName" --output text)
