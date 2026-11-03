@@ -112,6 +112,10 @@ Resources:
               - Effect: Allow
                 Action: ['apigateway:*', 'acm:*', 'geo:*', 'route53:GetChange']
                 Resource: '*'
+              # CreateKey requires the caller to hold every action the key allows.
+              - Effect: Allow
+                Action: ['geo-maps:GetTile', 'geo-maps:GetStaticMap']
+                Resource: !Sub 'arn:${AWS::Partition}:geo-maps:*::provider/default'
               - Effect: Allow
                 Action:
                   - route53:ChangeResourceRecordSets
