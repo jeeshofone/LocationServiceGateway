@@ -25,9 +25,12 @@ You will need a domain name and a Hosted Zone ID for the domain to serve the API
 Customize the following variables in the script as per your requirements:
 
 - `DOMAIN_NAME`: The domain name to serve the GEO API from. (Note: This domain should be registered and available in AWS Route 53.)
-- `CORS_ORIGIN`: Your frontend domain. (Note: For testing, you can set this to "*", but it's recommended to specify your frontend domain for security purposes.)
+- `CORS_ORIGIN`: Your frontend origin including the scheme, for example `https://example.com`. (For testing you can set this to "*".)
+- `ALLOWED_REFERERS`: Comma-separated Referer patterns the Location API key accepts, for example `https://example.com/*`. This is what stops other sites using your key.
 - `HostedZoneId`: The Hosted Zone ID of your domain. 
-- `DEPLOY_REGIONS`: A space-separated list of regions where you wish to deploy the services. Ensure these regions support AWS Location Service. The deploy.sh file has a list of regions where AWS Location Service is available. You can add or remove regions as per your requirements.
+- `DEPLOY_REGIONS`: A space-separated list of regions where you wish to deploy the services. They must support Amazon Location Service Maps V2; deploy.sh lists the supported regions. 
+
+Every setting can also be passed as an environment variable of the same name.
 
 ## Usage
 
@@ -46,9 +49,55 @@ When done cleaning up, you can remove the deployed stacks and DNS records. Run t
 
 The script utilizes `geo-api.yaml` and `geo-services.yaml` CloudFormation templates:
 
-- `geo-api.yaml`: Configures the API Gateway and integrates it with Location Services, specifying direct API Key references and CORS settings.
-- `geo-services.yaml`: Creates an API key for accessing maps in Location Service, along with the map resource itself.
+- `geo-api.yaml`: Creates a regional API Gateway on your custom domain that proxies requests to the Amazon Location Service Maps V2 endpoint in that region, adding the API key and CORS settings.
+- `geo-services.yaml`: Creates a Maps V2 API key (`LocationServiceGatewayKey-<region>`) limited to your referers. Maps V2 needs no map resource.
 
+## Using it from a map
+
+Point MapLibre GL JS at the gateway's style descriptor:
+
+```js
+new maplibregl.Map({
+  container: 'map',
+  style: 'https://geo.example.com/v2/styles/Standard/descriptor', // also Monochrome, Hybrid, Satellite; add ?color-scheme=Dark
+});
+```
+
+Note: the style descriptor returned by Amazon Location points tiles, sprites and glyphs straight at `maps.geo.<region>.amazonaws.com`, with the API key in the tile URL. The descriptor comes from the region nearest the user, so tiles do too, but the key is visible in the browser. The referer restriction on the key is what protects it.
+
+### Hiding the key (optional)
+
+Set `HIDE_API_KEY=true` when you run `deploy.sh`. A small Lambda then serves `/v2/styles/*`: it fetches the descriptor with the key, rewrites the tile, sprite and glyph URLs to your gateway domain and removes the key. The gateway adds the key back on the way to Amazon Location, so the key never reaches the browser. The browser's Referer is still forwarded, so the key's referer restriction keeps working.
+
+The cost of this: every tile now goes through API Gateway, so you pay API Gateway request charges on top of Amazon Location's, and the style request runs through a Lambda.
+
+### Serving several sites from one gateway
+
+List every site in `ALLOWED_REFERERS` (for example `https://site-a.com/*,https://site-b.com/*`) and set `CORS_ORIGIN='*'`. Amazon Location already answers tile requests with `Access-Control-Allow-Origin: *`, so the referer list on the key is what limits use to your sites.
+
+
+## Deploying from a pipeline (StackSet)
+
+`deploy.sh` is the quick manual path. For a managed environment, use the templates in `pipeline/` instead, so the whole deployment is defined in CloudFormation:
+
+- `pipeline/gateway.yaml` is the per-region stack: the API key, a custom resource that reads the key's value (so it never appears as a stack parameter), the regional API Gateway, its certificate, its latency-routing record and the optional key-hiding Lambda.
+- `pipeline/pipeline.yaml` is deployed once per environment account. It creates the gateway's hosted zone, a GitHub connection, the self-managed StackSet roles and a CodePipeline. Each push to `BranchName` runs `pipeline/buildspec.yaml`.
+- `pipeline/buildspec.yaml` creates or updates the StackSet, adds any missing regions, and then smoke-tests every region. Each region must return 200 for the style descriptor and a tile with an allowed Referer, 403 for a tile with no Referer, and no `key=` in the descriptor when the key is hidden.
+
+To set up an environment:
+
+```bash
+aws cloudformation deploy --template-file pipeline/pipeline.yaml --stack-name lsg-pipeline-staging \
+  --capabilities CAPABILITY_NAMED_IAM --parameter-overrides Environment=Staging \
+  DomainName=maps.staging.example.com \
+  AllowedReferers='https://staging.site-a.com/*,https://staging.site-b.com/*' \
+  SmokeReferer=https://staging.site-a.com/
+```
+
+Then do the following once:
+1. Add the `NameServers` output as an NS record for `DomainName` in the parent zone. Do this before the first pipeline run, because the certificates validate through that zone.
+2. Complete the GitHub handshake for the `ConnectionArn` output (Developer Tools > Settings > Connections).
+3. Release the pipeline, or push to the branch.
 ## Architecture Diagram
 
 Image: [Location Service Gateway](diagram.png)

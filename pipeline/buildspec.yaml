@@ -1,0 +1,97 @@
+version: 0.2
+
+# Deploys pipeline/gateway.yaml as a self-managed StackSet into this account across
+# $REGIONS, then smoke-tests every regional gateway. All inputs come from the
+# CodeBuild environment set by pipeline/pipeline.yaml.
+
+env:
+  shell: bash
+
+phases:
+  install:
+    commands:
+      - aws --version
+  build:
+    commands:
+      - |
+        set -euo pipefail
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+        jq -n \
+          --arg domain "$DOMAIN_NAME" --arg zone "$HOSTED_ZONE_ID" \
+          --arg referers "$ALLOWED_REFERERS" --arg cors "$CORS_ORIGIN" --arg hide "$HIDE_API_KEY" \
+          '[{ParameterKey:"DomainName",ParameterValue:$domain},
+            {ParameterKey:"HostedZoneId",ParameterValue:$zone},
+            {ParameterKey:"AllowedReferers",ParameterValue:$referers},
+            {ParameterKey:"CORSOrigin",ParameterValue:$cors},
+            {ParameterKey:"HideApiKey",ParameterValue:$hide}]' > params.json
+
+        COMMON=(--stack-set-name "$STACK_SET_NAME" --template-body file://pipeline/gateway.yaml
+                --parameters file://params.json --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND
+                --administration-role-arn "$ADMIN_ROLE_ARN" --execution-role-name "$EXECUTION_ROLE_NAME")
+        PREFS=RegionConcurrencyType=PARALLEL,MaxConcurrentPercentage=100,FailureTolerancePercentage=0
+
+        wait_op() {
+          local op=$1 status
+          while true; do
+            status=$(aws cloudformation describe-stack-set-operation --stack-set-name "$STACK_SET_NAME" \
+              --operation-id "$op" --query StackSetOperation.Status --output text)
+            echo "Operation $op: $status"
+            case "$status" in
+              SUCCEEDED) return 0 ;;
+              FAILED|STOPPED)
+                aws cloudformation list-stack-set-operation-results --stack-set-name "$STACK_SET_NAME" \
+                  --operation-id "$op" --query 'Summaries[?Status!=`SUCCEEDED`].[Region,Status,StatusReason]' --output table
+                return 1 ;;
+            esac
+            sleep 20
+          done
+        }
+
+        if aws cloudformation describe-stack-set --stack-set-name "$STACK_SET_NAME" >/dev/null 2>&1; then
+          echo "Updating StackSet $STACK_SET_NAME"
+          OP=$(aws cloudformation update-stack-set "${COMMON[@]}" --operation-preferences "$PREFS" \
+            --query OperationId --output text)
+          wait_op "$OP"
+        else
+          echo "Creating StackSet $STACK_SET_NAME"
+          aws cloudformation create-stack-set "${COMMON[@]}"
+        fi
+
+        EXISTING=$(aws cloudformation list-stack-instances --stack-set-name "$STACK_SET_NAME" \
+          --query 'Summaries[].Region' --output text)
+        MISSING=()
+        for region in $REGIONS; do
+          [[ " $EXISTING " == *" $region "* ]] || MISSING+=("$region")
+        done
+        if [ ${#MISSING[@]} -gt 0 ]; then
+          echo "Adding stack instances: ${MISSING[*]}"
+          OP=$(aws cloudformation create-stack-instances --stack-set-name "$STACK_SET_NAME" \
+            --accounts "$ACCOUNT_ID" --regions "${MISSING[@]}" --operation-preferences "$PREFS" \
+            --query OperationId --output text)
+          wait_op "$OP"
+        fi
+  post_build:
+    commands:
+      - |
+        set -euo pipefail
+        [ "$CODEBUILD_BUILD_SUCCEEDING" = "1" ] || exit 1
+        FAIL=0
+        for region in $REGIONS; do
+          TARGET=$(aws apigateway get-domain-name --region "$region" --domain-name "$DOMAIN_NAME" \
+            --query regionalDomainName --output text)
+          via=(--connect-to "$DOMAIN_NAME:443:$TARGET:443" -s -m 20)
+          desc=$(curl "${via[@]}" -o descriptor.json -w '%{http_code}' -H "Referer: $SMOKE_REFERER" \
+            "https://$DOMAIN_NAME/v2/styles/Standard/descriptor")
+          tile=$(curl "${via[@]}" -o /dev/null -w '%{http_code}' -H "Referer: $SMOKE_REFERER" \
+            "https://$DOMAIN_NAME/v2/tiles/vector.basemap/4/14/9")
+          anon=$(curl "${via[@]}" -o /dev/null -w '%{http_code}' \
+            "https://$DOMAIN_NAME/v2/tiles/vector.basemap/4/14/9")
+          leak=no
+          if [ "$HIDE_API_KEY" = "true" ] && grep -q 'key=' descriptor.json; then leak=yes; fi
+          echo "$region descriptor=$desc tile=$tile tile-no-referer=$anon key-in-descriptor=$leak"
+          if [ "$desc" != 200 ] || [ "$tile" != 200 ] || [ "$anon" != 403 ] || [ "$leak" = yes ]; then
+            FAIL=1
+          fi
+        done
+        exit $FAIL

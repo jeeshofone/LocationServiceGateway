@@ -1,0 +1,274 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Location Service Gateway delivery pipeline: hosted zone for the gateway hostname,
+  StackSet roles, and a CodePipeline that deploys pipeline/gateway.yaml to every region.
+  Deploy once per environment account; after that every push to the branch redeploys.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [Staging, Production]
+  RepositoryId:
+    Type: String
+    Default: jeeshofone/LocationServiceGateway
+  BranchName:
+    Type: String
+    Default: staging
+  DomainName:
+    Type: String
+    Description: >-
+      Gateway hostname. A hosted zone of the same name is created here; delegate it with an
+      NS record in the parent zone (output NameServers).
+  AllowedReferers:
+    Type: String
+    Description: Comma-separated Referer patterns for every tenant site.
+  SmokeReferer:
+    Type: String
+    Description: A Referer that AllowedReferers accepts, used by the post-deploy smoke test.
+  Regions:
+    Type: String
+    Default: >-
+      us-east-1 us-east-2 us-west-2 ap-south-1 ap-southeast-1 ap-southeast-2 ap-southeast-5
+      ap-northeast-1 ca-central-1 eu-central-1 eu-west-1 eu-west-2 eu-south-2 eu-north-1 sa-east-1
+    Description: Space-separated Maps V2 regions to deploy the gateway to.
+  CORSOrigin:
+    Type: String
+    Default: '*'
+  HideApiKey:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+
+Resources:
+  GatewayZone:
+    Type: AWS::Route53::HostedZone
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !Ref DomainName
+      HostedZoneConfig:
+        Comment: !Sub 'Location Service Gateway (${Environment}), managed by ${AWS::StackName}'
+
+  GitHubConnection:
+    Type: AWS::CodeStarConnections::Connection
+    Properties:
+      ConnectionName: !Sub 'lsg-${Environment}-github'
+      ProviderType: GitHub
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - {Id: expire-artifacts, Status: Enabled, ExpirationInDays: 30}
+
+  # Self-managed StackSet roles, scoped to this stack's names.
+  StackSetAdministrationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-StackSetAdministration'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: cloudformation.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: assume-execution-role
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AWS::StackName}-StackSetExecution'
+
+  StackSetExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-StackSetExecution'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !GetAtt StackSetAdministrationRole.Arn
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: deploy-gateway
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ['cloudformation:*', 'sns:*', 's3:GetObject']
+                Resource: '*'
+              - Effect: Allow
+                Action: ['apigateway:*', 'acm:*', 'geo:*', 'route53:GetChange']
+                Resource: '*'
+              # CreateKey requires the caller to hold every action the key allows.
+              - Effect: Allow
+                Action: ['geo-maps:GetTile', 'geo-maps:GetStaticMap']
+                Resource: !Sub 'arn:${AWS::Partition}:geo-maps:*::provider/default'
+              - Effect: Allow
+                Action:
+                  - route53:ChangeResourceRecordSets
+                  - route53:ListResourceRecordSets
+                  - route53:GetHostedZone
+                Resource: !Sub 'arn:${AWS::Partition}:route53:::hostedzone/${GatewayZone.Id}'
+              - Effect: Allow
+                Action: 'lambda:*'
+                Resource: !Sub 'arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:StackSet-*'
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:PassRole
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:GetRolePolicy
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/StackSet-*'
+
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: codebuild.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: deploy-stackset
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStackSet
+                  - cloudformation:UpdateStackSet
+                  - cloudformation:DescribeStackSet
+                  - cloudformation:CreateStackInstances
+                  - cloudformation:ListStackInstances
+                  - cloudformation:DescribeStackSetOperation
+                  - cloudformation:ListStackSetOperationResults
+                  - cloudformation:ValidateTemplate
+                  - apigateway:GET
+                  - sts:GetCallerIdentity
+                Resource: '*'
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt StackSetAdministrationRole.Arn
+              - Effect: Allow
+                Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents']
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*'
+              - Effect: Allow
+                Action: ['s3:GetObject', 's3:PutObject']
+                Resource: !Sub '${ArtifactBucket.Arn}/*'
+
+  DeployProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub 'location-service-gateway-${Environment}'
+      ServiceRole: !GetAtt BuildRole.Arn
+      TimeoutInMinutes: 90
+      Artifacts: {Type: CODEPIPELINE}
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: pipeline/buildspec.yaml
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
+        EnvironmentVariables:
+          - {Name: STACK_SET_NAME, Value: !Sub 'LocationServiceGateway-${Environment}'}
+          - {Name: ADMIN_ROLE_ARN, Value: !GetAtt StackSetAdministrationRole.Arn}
+          - {Name: EXECUTION_ROLE_NAME, Value: !Ref StackSetExecutionRole}
+          - {Name: DOMAIN_NAME, Value: !Ref DomainName}
+          - {Name: HOSTED_ZONE_ID, Value: !GetAtt GatewayZone.Id}
+          - {Name: ALLOWED_REFERERS, Value: !Ref AllowedReferers}
+          - {Name: SMOKE_REFERER, Value: !Ref SmokeReferer}
+          - {Name: REGIONS, Value: !Ref Regions}
+          - {Name: CORS_ORIGIN, Value: !Ref CORSOrigin}
+          - {Name: HIDE_API_KEY, Value: !Ref HideApiKey}
+
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: codepipeline.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: run-pipeline
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ['s3:GetObject', 's3:PutObject', 's3:GetBucketVersioning']
+                Resource: [!GetAtt ArtifactBucket.Arn, !Sub '${ArtifactBucket.Arn}/*']
+              - Effect: Allow
+                Action: codestar-connections:UseConnection
+                Resource: !Ref GitHubConnection
+              - Effect: Allow
+                Action: ['codebuild:StartBuild', 'codebuild:BatchGetBuilds']
+                Resource: !GetAtt DeployProject.Arn
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub 'location-service-gateway-${Environment}'
+      PipelineType: V2
+      ExecutionMode: QUEUED
+      RoleArn: !GetAtt PipelineRole.Arn
+      ArtifactStore: {Type: S3, Location: !Ref ArtifactBucket}
+      Triggers:
+        - ProviderType: CodeStarSourceConnection
+          GitConfiguration:
+            SourceActionName: Source
+            Push:
+              - Branches:
+                  Includes: [!Ref BranchName]
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId: {Category: Source, Owner: AWS, Provider: CodeStarSourceConnection, Version: '1'}
+              Configuration:
+                ConnectionArn: !Ref GitHubConnection
+                FullRepositoryId: !Ref RepositoryId
+                BranchName: !Ref BranchName
+                OutputArtifactFormat: CODE_ZIP
+              OutputArtifacts: [{Name: Source}]
+        - Name: Deploy
+          Actions:
+            - Name: DeployStackSet
+              ActionTypeId: {Category: Build, Owner: AWS, Provider: CodeBuild, Version: '1'}
+              Configuration:
+                ProjectName: !Ref DeployProject
+              InputArtifacts: [{Name: Source}]
+
+Outputs:
+  HostedZoneId:
+    Value: !GetAtt GatewayZone.Id
+  NameServers:
+    Description: Add these as an NS record for DomainName in the parent zone.
+    Value: !Join [',', !GetAtt GatewayZone.NameServers]
+  ConnectionArn:
+    Description: Complete the GitHub handshake for this connection once in the console.
+    Value: !Ref GitHubConnection
+  PipelineName:
+    Value: !Ref Pipeline
