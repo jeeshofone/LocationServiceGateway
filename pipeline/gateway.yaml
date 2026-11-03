@@ -79,16 +79,27 @@ Resources:
               Action: geo:DescribeKey
               Resource: !GetAtt LocationApiKey.KeyArn
       InlineCode: |
-        import boto3, cfnresponse
+        # cfnresponse is not injected for python3.13, so reply to CloudFormation directly.
+        import json, urllib.request, boto3
+        def send(event, status, data=None, reason=""):
+            body = json.dumps({
+                "Status": status, "Reason": reason or "See CloudWatch Logs",
+                "PhysicalResourceId": "key-lookup", "StackId": event["StackId"],
+                "RequestId": event["RequestId"], "LogicalResourceId": event["LogicalResourceId"],
+                "NoEcho": True, "Data": data or {},
+            }).encode()
+            req = urllib.request.Request(event["ResponseURL"], data=body, method="PUT",
+                                         headers={"Content-Type": "", "Content-Length": str(len(body))})
+            urllib.request.urlopen(req, timeout=10)
         def handler(event, context):
             try:
                 if event["RequestType"] == "Delete":
-                    return cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, "key-lookup")
+                    return send(event, "SUCCESS")
                 name = event["ResourceProperties"]["KeyName"]
                 key = boto3.client("location").describe_key(KeyName=name)["Key"]
-                cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Key": key}, "key-lookup", noEcho=True)
+                send(event, "SUCCESS", {"Key": key})
             except Exception as err:
-                cfnresponse.send(event, context, cfnresponse.FAILED, {}, "key-lookup", reason=str(err)[:200])
+                send(event, "FAILED", reason=str(err)[:200])
 
   KeyLookup:
     Type: Custom::LocationApiKeyValue
