@@ -75,6 +75,29 @@ The cost of this: every tile now goes through API Gateway, so you pay API Gatewa
 
 List every site in `ALLOWED_REFERERS` (for example `https://site-a.com/*,https://site-b.com/*`) and set `CORS_ORIGIN='*'`. Amazon Location already answers tile requests with `Access-Control-Allow-Origin: *`, so the referer list on the key is what limits use to your sites.
 
+
+## Deploying from a pipeline (StackSet)
+
+`deploy.sh` is the quick manual path. For a managed environment, use the templates in `pipeline/` instead, so the whole deployment is defined in CloudFormation:
+
+- `pipeline/gateway.yaml` is the per-region stack: the API key, a custom resource that reads the key's value (so it never appears as a stack parameter), the regional API Gateway, its certificate, its latency-routing record and the optional key-hiding Lambda.
+- `pipeline/pipeline.yaml` is deployed once per environment account. It creates the gateway's hosted zone, a GitHub connection, the self-managed StackSet roles and a CodePipeline. Each push to `BranchName` runs `pipeline/buildspec.yaml`.
+- `pipeline/buildspec.yaml` creates or updates the StackSet, adds any missing regions, and then smoke-tests every region. Each region must return 200 for the style descriptor and a tile with an allowed Referer, 403 for a tile with no Referer, and no `key=` in the descriptor when the key is hidden.
+
+To set up an environment:
+
+```bash
+aws cloudformation deploy --template-file pipeline/pipeline.yaml --stack-name lsg-pipeline-staging \
+  --capabilities CAPABILITY_NAMED_IAM --parameter-overrides Environment=Staging \
+  DomainName=maps.staging.example.com \
+  AllowedReferers='https://staging.site-a.com/*,https://staging.site-b.com/*' \
+  SmokeReferer=https://staging.site-a.com/
+```
+
+Then do the following once:
+1. Add the `NameServers` output as an NS record for `DomainName` in the parent zone. Do this before the first pipeline run, because the certificates validate through that zone.
+2. Complete the GitHub handshake for the `ConnectionArn` output (Developer Tools > Settings > Connections).
+3. Release the pipeline, or push to the branch.
 ## Architecture Diagram
 
 Image: [Location Service Gateway](diagram.png)

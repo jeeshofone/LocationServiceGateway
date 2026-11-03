@@ -1,0 +1,244 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: 'AWS::Serverless-2016-10-31'
+Description: >-
+  Location Service Gateway, one region: Maps V2 API key, regional API Gateway proxy,
+  certificate and latency-routing record. Deployed to every region by the pipeline's StackSet.
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: Gateway hostname, e.g. maps.staging.example.com.
+  HostedZoneId:
+    Type: String
+    Description: Route 53 hosted zone that holds DomainName (created by pipeline.yaml).
+  AllowedReferers:
+    Type: CommaDelimitedList
+    Description: Referer patterns the API key accepts, one or more per tenant site.
+  CORSOrigin:
+    Type: String
+    Default: '*'
+    Description: >-
+      Access-Control-Allow-Origin for preflight and style responses. Amazon returns * on
+      proxied tiles regardless, so * is the honest value for a multi-tenant gateway.
+  HideApiKey:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: When true, a Lambda serves style descriptors with the key removed.
+
+Conditions:
+  HideKey: !Equals [!Ref HideApiKey, 'true']
+
+Mappings:
+  RegionMap:
+    us-east-1: {Endpoint: maps.geo.us-east-1.amazonaws.com}
+    us-east-2: {Endpoint: maps.geo.us-east-2.amazonaws.com}
+    us-west-2: {Endpoint: maps.geo.us-west-2.amazonaws.com}
+    ap-south-1: {Endpoint: maps.geo.ap-south-1.amazonaws.com}
+    ap-southeast-1: {Endpoint: maps.geo.ap-southeast-1.amazonaws.com}
+    ap-southeast-2: {Endpoint: maps.geo.ap-southeast-2.amazonaws.com}
+    ap-southeast-5: {Endpoint: maps.geo.ap-southeast-5.amazonaws.com}
+    ap-northeast-1: {Endpoint: maps.geo.ap-northeast-1.amazonaws.com}
+    ca-central-1: {Endpoint: maps.geo.ca-central-1.amazonaws.com}
+    eu-central-1: {Endpoint: maps.geo.eu-central-1.amazonaws.com}
+    eu-west-1: {Endpoint: maps.geo.eu-west-1.amazonaws.com}
+    eu-west-2: {Endpoint: maps.geo.eu-west-2.amazonaws.com}
+    eu-south-2: {Endpoint: maps.geo.eu-south-2.amazonaws.com}
+    eu-north-1: {Endpoint: maps.geo.eu-north-1.amazonaws.com}
+    sa-east-1: {Endpoint: maps.geo.sa-east-1.amazonaws.com}
+
+Resources:
+  LocationApiKey:
+    Type: AWS::Location::APIKey
+    Properties:
+      Description: !Sub 'Location Service Gateway Maps V2 key for ${DomainName}'
+      KeyName: !Sub 'LocationServiceGatewayKey-${AWS::Region}'
+      NoExpiry: true
+      ForceUpdate: true
+      ForceDelete: true
+      Restrictions:
+        AllowActions:
+          - 'geo-maps:GetStaticMap'
+          - 'geo-maps:GetTile'
+        AllowReferers: !Ref AllowedReferers
+        AllowResources:
+          - !Sub 'arn:aws:geo-maps:${AWS::Region}::provider/default'
+
+  # CloudFormation cannot return an API key's value, so a custom resource reads it.
+  # NoEcho keeps it out of stack events and outputs; it never appears as a parameter.
+  KeyLookupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Returns the Location API key value to this stack
+      Runtime: python3.13
+      Handler: index.handler
+      Timeout: 30
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: geo:DescribeKey
+              Resource: !GetAtt LocationApiKey.KeyArn
+      InlineCode: |
+        import boto3, cfnresponse
+        def handler(event, context):
+            try:
+                if event["RequestType"] == "Delete":
+                    return cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, "key-lookup")
+                name = event["ResourceProperties"]["KeyName"]
+                key = boto3.client("location").describe_key(KeyName=name)["Key"]
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Key": key}, "key-lookup", noEcho=True)
+            except Exception as err:
+                cfnresponse.send(event, context, cfnresponse.FAILED, {}, "key-lookup", reason=str(err)[:200])
+
+  KeyLookup:
+    Type: Custom::LocationApiKeyValue
+    Properties:
+      ServiceToken: !GetAtt KeyLookupFunction.Arn
+      KeyName: !Ref LocationApiKey
+      KeyArn: !GetAtt LocationApiKey.KeyArn
+
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+
+  GeoApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Description: !Sub 'Location Service Gateway (${AWS::Region})'
+      StageName: Prod
+      EndpointConfiguration: REGIONAL
+      BinaryMediaTypes: !If [HideKey, ['*~1*'], !Ref AWS::NoValue]
+      Domain:
+        DomainName: !Ref DomainName
+        CertificateArn: !Ref Certificate
+        EndpointConfiguration: REGIONAL
+        Route53:
+          HostedZoneId: !Ref HostedZoneId
+          Region: !Ref AWS::Region
+          SetIdentifier: !Ref AWS::Region
+      DefinitionBody:
+        swagger: '2.0'
+        info:
+          title: !Ref AWS::StackName
+        paths:
+          '/v2/styles/{proxy+}': !If
+            - HideKey
+            - get:
+                produces: ['application/json']
+                parameters:
+                  - {name: proxy, in: path, required: true, type: string}
+                responses: {}
+                x-amazon-apigateway-integration:
+                  type: aws_proxy
+                  httpMethod: POST
+                  uri: !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${StyleRewriteFunction.Arn}/invocations'
+            - !Ref AWS::NoValue
+          '/{proxy+}':
+            get:
+              produces: ['application/json']
+              parameters:
+                - {name: proxy, in: path, required: true, type: string}
+              responses:
+                '200':
+                  description: 200 response
+              x-amazon-apigateway-integration:
+                httpMethod: GET
+                type: http_proxy
+                uri: !Sub
+                  - 'https://${Endpoint}/{proxy}?key=${ApiKey}'
+                  - Endpoint: !FindInMap [RegionMap, !Ref AWS::Region, Endpoint]
+                    ApiKey: !GetAtt KeyLookup.Key
+                requestParameters:
+                  integration.request.path.proxy: method.request.path.proxy
+            options:
+              produces: ['application/json']
+              responses:
+                '200':
+                  description: 200 response
+                  headers:
+                    Access-Control-Allow-Origin: {type: string}
+                    Access-Control-Allow-Methods: {type: string}
+                    Access-Control-Allow-Headers: {type: string}
+              x-amazon-apigateway-integration:
+                type: mock
+                requestTemplates:
+                  application/json: '{ "statusCode": 200 }'
+                responses:
+                  default:
+                    statusCode: '200'
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Origin: !Sub "'${CORSOrigin}'"
+                      method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+                responseTemplates:
+                  application/json: '{}'
+
+  StyleRewriteFunction:
+    Type: AWS::Serverless::Function
+    Condition: HideKey
+    Properties:
+      Description: Rewrites Amazon Location style descriptors to point at this gateway without the API key
+      Runtime: python3.13
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 10
+      Environment:
+        Variables:
+          API_KEY: !GetAtt KeyLookup.Key
+          UPSTREAM: !FindInMap [RegionMap, !Ref AWS::Region, Endpoint]
+          GATEWAY_DOMAIN: !Ref DomainName
+          CORS_ORIGIN: !Ref CORSOrigin
+      InlineCode: |
+        import base64, os, re, urllib.error, urllib.parse, urllib.request
+
+        UPSTREAM = os.environ["UPSTREAM"]
+        GATEWAY = os.environ["GATEWAY_DOMAIN"]
+
+        def strip_key(text):
+            text = re.sub(r'\?key=[^&"\s]*&', '?', text)
+            return re.sub(r'[?&]key=[^&"\s]*', '', text)
+
+        def handler(event, context):
+            path = urllib.parse.quote((event.get("pathParameters") or {}).get("proxy", ""), safe="/")
+            query = dict(event.get("queryStringParameters") or {})
+            query.pop("key", None)
+            query["key"] = os.environ["API_KEY"]
+            url = f"https://{UPSTREAM}/v2/styles/{path}?{urllib.parse.urlencode(query)}"
+            headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
+            upstream_headers = {"Referer": headers["referer"]} if "referer" in headers else {}
+            try:
+                with urllib.request.urlopen(urllib.request.Request(url, headers=upstream_headers), timeout=8) as resp:
+                    status, raw = resp.status, resp.read()
+                    content_type = resp.headers.get("Content-Type", "application/json")
+                    cache = resp.headers.get("Cache-Control")
+            except urllib.error.HTTPError as err:
+                status, raw = err.code, err.read()
+                content_type, cache = "application/json", None
+            out = {"Content-Type": content_type, "Access-Control-Allow-Origin": os.environ["CORS_ORIGIN"]}
+            if cache:
+                out["Cache-Control"] = cache
+            if "json" not in content_type and not content_type.startswith("text/"):
+                return {"statusCode": status, "headers": out, "isBase64Encoded": True,
+                        "body": base64.b64encode(raw).decode("ascii")}
+            body = raw.decode("utf-8", "replace")
+            if status == 200:
+                body = body.replace(f"https://{UPSTREAM}", f"https://{GATEWAY}")
+            return {"statusCode": status, "headers": out, "body": strip_key(body)}
+
+  StyleRewritePermission:
+    Type: AWS::Lambda::Permission
+    Condition: HideKey
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref StyleRewriteFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${GeoApiGateway}/*/GET/v2/styles/*'
+
+Outputs:
+  ApiEndpoint:
+    Value: !Sub 'https://${DomainName}'
