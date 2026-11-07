@@ -1,0 +1,120 @@
+<mxfile host="drawio" version="24.7.17">
+  <diagram id="lsg" name="Location Service Gateway">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="840" background="#FFFFFF" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="&lt;b&gt;Location Service Gateway&lt;/b&gt; &amp;nbsp;request path (top) and deployment (bottom)" style="text;html=1;align=left;verticalAlign=middle;fontSize=18;fontColor=#232F3E;" vertex="1" parent="1">
+          <mxGeometry x="40" y="5" width="900" height="35" as="geometry" />
+        </mxCell>
+
+        <!-- Groups -->
+        <mxCell id="acct" value="Gateway AWS account (one per environment)" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=13;fontStyle=0;container=0;pointerEvents=0;collapsible=0;recursiveResize=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_account;strokeColor=#CD2264;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#CD2264;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="220" y="50" width="1150" height="760" as="geometry" />
+        </mxCell>
+        <mxCell id="region" value="Region, e.g. ap-southeast-2: one StackSet stack instance (pipeline/gateway.yaml)" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=0;container=0;pointerEvents=0;collapsible=0;recursiveResize=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_region;strokeColor=#00A4A6;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#147EBA;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="410" y="80" width="930" height="380" as="geometry" />
+        </mxCell>
+        <mxCell id="more" value="Every other region in the Regions list runs the same stack (up to 15 regions)" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=0;container=0;pointerEvents=0;collapsible=0;recursiveResize=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_region;strokeColor=#00A4A6;fillColor=none;verticalAlign=middle;align=left;spacingLeft=30;fontColor=#147EBA;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="410" y="480" width="930" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="deploylabel" value="&lt;b&gt;Deployment&lt;/b&gt;" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1">
+          <mxGeometry x="250" y="560" width="200" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Request path -->
+        <mxCell id="browser" value="Browser&lt;br&gt;MapLibre GL JS" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#232F3D;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.client;" vertex="1" parent="1">
+          <mxGeometry x="60" y="190" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="r53" value="Route 53 hosted zone&lt;br&gt;maps.example.com&lt;br&gt;latency record per region" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#8C4FFF;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.route_53;" vertex="1" parent="1">
+          <mxGeometry x="280" y="90" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="cert" value="ACM certificate" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#DD344C;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.certificate_manager_3;" vertex="1" parent="1">
+          <mxGeometry x="470" y="330" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="apigw" value="Regional API Gateway&lt;br&gt;custom domain" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.api_gateway;" vertex="1" parent="1">
+          <mxGeometry x="660" y="190" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="style" value="Style-rewrite Lambda (optional)&lt;br&gt;strips the key, points URLs at the gateway" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" vertex="1" parent="1">
+          <mxGeometry x="900" y="100" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="loc" value="Amazon Location Service&lt;br&gt;Maps V2 (same region)" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#DD344C;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.location_service;" vertex="1" parent="1">
+          <mxGeometry x="1190" y="190" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="key" value="Location API key&lt;br&gt;referer-restricted" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#DD344C;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.location_service;" vertex="1" parent="1">
+          <mxGeometry x="880" y="330" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="lookup" value="KeyLookup custom resource&lt;br&gt;reads the key at deploy time and&lt;br&gt;writes it into the integration URI" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" vertex="1" parent="1">
+          <mxGeometry x="660" y="330" width="64" height="64" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e1" value="1. resolve hostname" style="edgeStyle=none;html=1;endArrow=block;dashed=1;fontSize=11;labelBackgroundColor=#FFFFFF;strokeColor=#545B64;" edge="1" parent="1" source="browser" target="r53">
+          <mxGeometry relative="1" as="geometry" x="-0.35" />
+        </mxCell>
+        <mxCell id="e2" value="2. HTTPS to the nearest region:&lt;br&gt;style, tiles, sprites, glyphs" style="edgeStyle=none;html=1;endArrow=block;fontSize=11;labelBackgroundColor=#FFFFFF;strokeColor=#232F3E;strokeWidth=2;" edge="1" parent="1" source="browser" target="apigw">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="latency alias" style="edgeStyle=none;html=1;endArrow=block;dashed=1;fontSize=11;labelBackgroundColor=#FFFFFF;strokeColor=#8C4FFF;" edge="1" parent="1" source="r53" target="apigw">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="TLS" style="edgeStyle=none;html=1;endArrow=none;dashed=1;fontSize=11;labelBackgroundColor=#FFFFFF;strokeColor=#DD344C;" edge="1" parent="1" source="cert" target="apigw">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="/v2/styles/*" style="edgeStyle=none;html=1;endArrow=block;fontSize=11;labelBackgroundColor=#FFFFFF;strokeColor=#ED7100;strokeWidth=2;" edge="1" parent="1" source="apigw" target="style">
+          <mxGeometry relative="1" as="geometry" x="-0.55" />
+        </mxCell>
+        <mxCell id="e6" value="fetch descriptor with key" style="edgeStyle=none;html=1;endArrow=block;fontSize=11;labelBackgroundColor=#FFFFFF;strokeColor=#ED7100;" edge="1" parent="1" source="style" target="loc">
+          <mxGeometry relative="1" as="geometry" x="0.15" />
+        </mxCell>
+        <mxCell id="e7" value="/{proxy+}: HTTP proxy, adds ?key=" style="edgeStyle=none;html=1;endArrow=block;fontSize=11;labelBackgroundColor=#FFFFFF;strokeColor=#232F3E;strokeWidth=2;" edge="1" parent="1" source="apigw" target="loc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="reads value" style="edgeStyle=none;html=1;endArrow=block;dashed=1;fontSize=11;labelBackgroundColor=#FFFFFF;strokeColor=#545B64;" edge="1" parent="1" source="lookup" target="key">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="" style="edgeStyle=none;html=1;endArrow=block;dashed=1;fontSize=11;labelBackgroundColor=#FFFFFF;strokeColor=#545B64;" edge="1" parent="1" source="lookup" target="apigw">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Deployment -->
+        <mxCell id="gh" value="&lt;b&gt;GitHub&lt;/b&gt;&lt;br&gt;your fork of this repo" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#545B64;fontColor=#232F3E;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="660" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="conn" value="&lt;b&gt;GitHub connection&lt;/b&gt;&lt;br&gt;CodeConnections, approved once" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#C925D1;fontColor=#232F3E;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="250" y="660" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cp" value="CodePipeline&lt;br&gt;on push to BranchName" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#C925D1;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.codepipeline;" vertex="1" parent="1">
+          <mxGeometry x="470" y="658" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="cb" value="CodeBuild: pipeline/buildspec.yaml&lt;br&gt;updates the StackSet, then&lt;br&gt;smoke-tests every region" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#C925D1;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.codebuild;" vertex="1" parent="1">
+          <mxGeometry x="660" y="658" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="ss" value="Self-managed CloudFormation StackSet&lt;br&gt;one instance per region" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.cloudformation;" vertex="1" parent="1">
+          <mxGeometry x="900" y="658" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="boot" value="&lt;b&gt;Bootstrap, once per account&lt;/b&gt;&lt;br&gt;1. Deploy pipeline/pipeline.yaml. It creates the hosted zone, the GitHub connection, the StackSet roles, CodeBuild and CodePipeline.&lt;br&gt;2. Add the NameServers output as an NS record in the parent zone.&lt;br&gt;3. Approve the GitHub connection in the console." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E6;strokeColor=#D79B00;dashed=1;fontColor=#232F3E;fontSize=12;align=left;verticalAlign=top;spacing=10;arcSize=6;" vertex="1" parent="1">
+          <mxGeometry x="1060" y="600" width="290" height="170" as="geometry" />
+        </mxCell>
+
+        <mxCell id="d1" value="source" style="edgeStyle=none;html=1;endArrow=block;fontSize=11;labelBackgroundColor=#FFFFFF;strokeColor=#545B64;" edge="1" parent="1" source="gh" target="conn">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="d2" style="edgeStyle=none;html=1;endArrow=block;strokeColor=#545B64;" edge="1" parent="1" source="conn" target="cp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="d3" style="edgeStyle=none;html=1;endArrow=block;strokeColor=#545B64;" edge="1" parent="1" source="cp" target="cb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="d4" style="edgeStyle=none;html=1;endArrow=block;strokeColor=#545B64;" edge="1" parent="1" source="cb" target="ss">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="d5" value="creates and updates&lt;br&gt;each region's stack" style="edgeStyle=none;html=1;endArrow=block;fontSize=11;labelBackgroundColor=#FFFFFF;strokeColor=#E7157B;strokeWidth=2;" edge="1" parent="1" source="ss" target="more">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="932" y="530" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
