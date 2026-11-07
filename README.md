@@ -1,6 +1,10 @@
 # Location Service Gateway
 
-Automate the deployment of Amazon Location Services across specified AWS regions with this script. The script creates an API Gateway and integrates it with Location Services, specifying direct API Key references and CORS settings. It also creates an API key for accessing maps in Location Service, along with the map resource itself. This allows you to serve the Amazon Location Service API from a custom domain and deploy it across multiple regions. Users can access the API from a single endpoint domain name, and they will be directed to the backend services in the closest region, ensuring low-latency, high-quality, and cost-effective map tile delivery, worldwide.
+Serve Amazon Location Service Maps V2 from one custom domain in many AWS regions. Each region gets a referer-restricted Location API key and a regional API Gateway that proxies to Amazon Location in that region and adds the key on the way. Route 53 latency routing sends each user to the nearest region. An optional Lambda keeps the key out of the browser entirely. Maps V2 needs no map resource, so none is created.
+
+There are two ways to deploy it:
+- `deploy.sh` deploys region by region from your machine. It's the quick way to try it out.
+- `pipeline/` is the managed way: a CodePipeline that deploys the gateway to every region as a CloudFormation StackSet and smoke-tests each one. See [Deploying from a pipeline](#deploying-from-a-pipeline-stackset).
 
 ## Overview
 
@@ -17,6 +21,8 @@ IMPORTANT: ensure that you are in the right AWS account before running the scrip
 ```bash
 aws sts get-caller-identity --profile <your-profile>
 ```
+
+The profile also needs `geo-maps:GetTile` and `geo-maps:GetStaticMap`. Amazon Location refuses to create an API key for a caller that doesn't itself hold every action the key allows. An administrator profile already has them.
 
 You will need a domain name and a Hosted Zone ID for the domain to serve the API from. The domain name should be a registered domain, and the Hosted Zone ID should be available in the AWS Route 53 service. You can use a domain registered with AWS Route 53 or a domain registered with another registrar as long as the Hosted Zone ID is available in AWS Route 53.
 
@@ -84,23 +90,76 @@ List every site in `ALLOWED_REFERERS` (for example `https://site-a.com/*,https:/
 - `pipeline/pipeline.yaml` is deployed once per environment account. It creates the gateway's hosted zone, a GitHub connection, the self-managed StackSet roles and a CodePipeline. Each push to `BranchName` runs `pipeline/buildspec.yaml`.
 - `pipeline/buildspec.yaml` creates or updates the StackSet, adds any missing regions, and then smoke-tests every region. Each region must return 200 for the style descriptor and a tile with an allowed Referer, 403 for a tile with no Referer, and no `key=` in the descriptor when the key is hidden.
 
-To set up an environment:
+Use one AWS account per environment, for example a staging account and a production account.
+
+### Before you start
+
+1. **Fork this repo.** The pipeline reads from GitHub through a connection that you approve for your own account, so it can't read someone else's repository. Pass your fork as `RepositoryId` (the default is this repo).
+2. **Enable opt-in regions.** ap-southeast-5 and eu-south-2 are in the default `Regions` list but are opt-in regions. Either enable them in the account first (AWS Account > Regions) or leave them out of `Regions`. Deploying to a region that isn't enabled fails.
+3. **Pick a hostname you can delegate.** The pipeline stack creates a hosted zone for `DomainName`, and you need to be able to add an NS record for it in the parent zone.
+
+The StackSet execution role in `pipeline.yaml` already has the less obvious permissions: the `geo-maps` actions the API key allows (needed to create the key), and `iam:CreateServiceLinkedRole` for API Gateway's role. A new account doesn't have that role until its first custom domain is created.
+
+### Parameters
+
+| Parameter | Default | What it sets |
+|---|---|---|
+| `Environment` | (required) | `Staging` or `Production`. Used in resource names. |
+| `RepositoryId` | `jeeshofone/LocationServiceGateway` | Your fork, as `owner/repo`. |
+| `BranchName` | `staging` | The branch the pipeline deploys. Use `main` for production. |
+| `DomainName` | (required) | The gateway hostname, for example `maps.example.com`. |
+| `AllowedReferers` | (required) | Comma-separated Referer patterns for every site that uses the gateway. |
+| `SmokeReferer` | (required) | One Referer that `AllowedReferers` accepts, used by the smoke test. |
+| `Regions` | 15 Maps V2 regions | Space-separated regions to deploy to. |
+| `CORSOrigin` | `*` | The CORS origin returned on preflight requests. |
+| `HideApiKey` | `true` | Turns the key-hiding Lambda on or off. |
+
+### Set up an environment
+
+Deploy the pipeline stack once from your machine. Staging:
 
 ```bash
 aws cloudformation deploy --template-file pipeline/pipeline.yaml --stack-name lsg-pipeline-staging \
   --capabilities CAPABILITY_NAMED_IAM --parameter-overrides Environment=Staging \
+  RepositoryId=your-org/LocationServiceGateway BranchName=staging \
   DomainName=maps.staging.example.com \
   AllowedReferers='https://staging.site-a.com/*,https://staging.site-b.com/*' \
   SmokeReferer=https://staging.site-a.com/
 ```
 
-Then do the following once:
+Production, in its own account:
+
+```bash
+aws cloudformation deploy --template-file pipeline/pipeline.yaml --stack-name lsg-pipeline-production \
+  --capabilities CAPABILITY_NAMED_IAM --parameter-overrides Environment=Production \
+  RepositoryId=your-org/LocationServiceGateway BranchName=main \
+  DomainName=maps.example.com \
+  AllowedReferers='https://site-a.com/*,https://site-b.com/*' \
+  SmokeReferer=https://site-a.com/
+```
+
+Then do the following once per account:
 1. Add the `NameServers` output as an NS record for `DomainName` in the parent zone. Do this before the first pipeline run, because the certificates validate through that zone.
-2. Complete the GitHub handshake for the `ConnectionArn` output (Developer Tools > Settings > Connections).
+2. Complete the GitHub handshake for the `ConnectionArn` output (Developer Tools > Settings > Connections > Update pending connection).
 3. Release the pipeline, or push to the branch.
+
+After that, every push to `BranchName` redeploys the StackSet and runs the smoke test. A change to `pipeline/pipeline.yaml` itself is not applied by the pipeline: redeploy that stack with the same command.
+
+## AWS terms and map attribution
+
+Amazon Location's map data comes from third-party providers, and Section 82 of the [AWS Service Terms](https://aws.amazon.com/service-terms/) sets rules for using it. The ones that matter most for a gateway like this:
+
+- **No caching.** You may not store or cache map tiles or other Location data, apart from a few narrow exceptions for route and geocoding results. Don't put a caching layer such as CloudFront in front of the gateway. This gateway passes every request through to Amazon Location.
+- **No resale as a map service.** You may not use Location data to offer a product similar to the map providers' own services unless it adds substantial value of its own. Serving maps inside your own sites is fine. Selling access to the gateway itself is not.
+- **Keep the attribution.** You must pass through the data attribution and not hide or modify it. MapLibre shows the style's attribution in the corner of the map by default, so leave that control on. AWS also asks you to link to its [data attribution page](https://docs.aws.amazon.com/location/latest/developerguide/data-attribution.html) from your end-user terms.
+- **No branding on the map.** You may not put your company name or ads on the map display itself.
+
+This is a summary, not legal advice. Read Section 82 for the full terms before you deploy.
+
 ## Architecture Diagram
 
-Image: [Location Service Gateway](diagram.png)
-![alt text](https://github.com/jeeshofone/LocationServiceGateway/blob/main/diagram.png?raw=true)
+![Location Service Gateway architecture: request path and deployment](diagram.png)
+
+The source is `diagram.drawio`. Open it in [diagrams.net](https://app.diagrams.net/) or the draw.io desktop app to edit it, then export it over `diagram.png`.
 
 Ensure you have the necessary permissions and meet all prerequisites before running the script or deploying the CloudFormation templates.
